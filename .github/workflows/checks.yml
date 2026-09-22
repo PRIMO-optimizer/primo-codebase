@@ -1,0 +1,103 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Checks
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    # the -l flag is needed for the Conda environment to be activated properly
+    shell: bash -l {0}
+
+env:
+  # needed for colorized output to be shown in GHA logs
+  PYTEST_ADDOPTS: "--color=yes"
+  PIP_PROGRESS_BAR: "off"
+  BING_API_KEY: ${{ secrets.BING_API_KEY }}
+  CENSUS_KEY: ${{ secrets.CENSUS_KEY }}
+
+jobs:
+  pytest:
+    name: Tests (py${{ matrix.python-version }}/${{ matrix.os }}/${{ matrix.install-mode }})
+    runs-on: ${{ matrix.os-version }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
+        os:
+          - linux
+          - win64
+        install-mode:
+          - dev
+        include:
+          - os: linux
+            os-version: ubuntu-latest
+          - os: win64
+            os-version: windows-latest
+          - install-mode: dev
+            pip-install-target: -r requirements-dev.txt
+          - install-mode: dev
+            os: linux
+            cov-report: true
+    steps:
+      - uses: actions/checkout@v4
+        if: matrix.install-mode == 'dev'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Set up package (install-mode=${{ matrix.install-mode }})
+        run: |
+          pip --no-cache-dir install ${{ matrix.pip-install-target }}
+      - name: Add pytest options to enable coverage report
+        if: matrix.cov-report
+        run: echo PYTEST_ADDOPTS="$PYTEST_ADDOPTS --cov --cov-report=xml" >> $GITHUB_ENV
+      - name: Run pytest
+        # Skip tests that require API Keys (Secrets) when pull request is opened
+        run: |
+          if [ ${{ github.event_name }} == 'pull_request' ]; then
+            pytest -v -m "not secrets"
+          else
+            pytest -v
+          fi
+
+  black:
+    name: Run Black to verify that committed code is formatted
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install (dev mode)
+        run: |
+          pip --no-cache-dir install --progress-bar off -r requirements-dev.txt
+      - name: Run Black to verify that committed code is formatted
+        run: |
+          black --check .
+
+  isort:
+    name: Run isort to verify that committed code has imports alphabetically sorted
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install (dev mode)
+        run: |
+          pip --no-cache-dir install --progress-bar off -r requirements-dev.txt
+      - name: Run isort
+        run: |
+          isort --check primo

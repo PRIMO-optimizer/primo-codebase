@@ -1,0 +1,58 @@
+{
+    "efficiency_weights": {
+        "Number of Wells": {
+            "default": 20,
+            "min_val": 0,
+            "max_val": 100,
+            "incr": 5
+        }
+    },
+    "impact_weights": {
+        "1. Emissions": {
+            "default": 35,
+            "min_val": 0,
+            "max_val": 100,
+            "incr": 5,
+            "sub_weights": {
+                "1.1 Leak [Yes/No]": {
+                    "default": 20,
+                    "min_val": 0,
+                    "max_val": 100,
+                    "incr": 5
+                },
+                "1.2 Compliance [Yes/No]": {
+                    "default": 80,
+                    "min_val": 0,
+                    "max_val": 100,
+                    "incr": 5
+                }
+            }
+        },
+        "2. Owner Well-Count": {
+            "default": 45,
+            "min_val": 0,
+            "max_val": 100,
+            "incr": 5
+        },
+        "3. H2S Emissions": {
+            "default": 20,
+            "min_val": 0,
+            "max_val": 100,
+            "incr": 5
+        }
+    },
+    "program_constraints": {
+        "Lifelong Production Constraint": {
+            "default": 500,
+            "min_val": 0,
+            "max_val": 1000,
+            "incr": 100
+        },
+        "Owner Well Count Constraint": {
+            "default": 1,
+            "min_val": 1,
+            "max_val": 20,
+            "incr": 1
+        }
+    }
+}

@@ -1,0 +1,338 @@
+#################################################################################
+# PRIMO - The P&A Project Optimizer was produced by the National Energy
+# Technology Laboratory (NETL).
+#
+# NOTICE. This Software was developed under funding from the U.S. Government
+# and the U.S. Government consequently retains certain rights. As such, the
+# U.S. Government has been granted for itself and others acting on its behalf
+# a paid-up, nonexclusive, irrevocable, worldwide license in the Software to
+# reproduce, distribute copies to the public, prepare derivative works, and
+# perform publicly and display publicly, and to permit others to do so.
+#################################################################################
+
+# Standard libs
+from dataclasses import dataclass
+
+# Installed libs
+from pyomo.common.config import (
+    Bool,
+    ConfigDict,
+    ConfigValue,
+    In,
+    IsInstance,
+    NonNegativeFloat,
+)
+
+# User-defined libs
+from primo.data_parser.metric_data import EfficiencyMetrics, ImpactMetrics
+from primo.utils.domain_validators import InRange
+from primo.utils.raise_exception import raise_exception
+
+
+def data_config() -> ConfigDict:
+    """
+    Returns a Pyomo ConfigDict object that includes all user options
+    associated with data processing
+    """
+    config = ConfigDict()
+    config.declare(
+        "census_year",
+        ConfigValue(
+            default=2020,
+            domain=In(list(range(2020, 2101, 10))),
+            doc="Year for collecting census data",
+        ),
+    )
+    config.declare(
+        "preliminary_data_check",
+        ConfigValue(
+            default=True, domain=Bool, doc="If True, performs preliminary data checks"
+        ),
+    )
+    config.declare(
+        "verify_operator_name",
+        ConfigValue(
+            default=True,
+            domain=Bool,
+            doc="Remove well if operator name is not provided",
+        ),
+    )
+    config.declare(
+        "fill_user_plugging_cost",
+        ConfigValue(
+            default=None,
+            domain=NonNegativeFloat,
+            doc="Value to fill with, if the user plugging cost is missing",
+        ),
+    )
+    config.declare(
+        "missing_age",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "estimate", "remove"]),
+            doc="Method for processing missing age information",
+        ),
+    )
+    config.declare(
+        "missing_depth",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "estimate", "remove"]),
+            doc="Method for processing missing depth information",
+        ),
+    )
+    config.declare(
+        "missing_well_type",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "remove"]),
+            doc="Method for processing missing well-type information",
+        ),
+    )
+    config.declare(
+        "missing_ann_gas_production",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "remove"]),
+            doc="Method for processing missing annual gas production rate",
+        ),
+    )
+    config.declare(
+        "missing_ann_oil_production",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "remove"]),
+            doc="Method for processing missing annual oil production rate",
+        ),
+    )
+    config.declare(
+        "missing_life_gas_production",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "remove"]),
+            doc="Method for processing missing lifetime gas production rate",
+        ),
+    )
+    config.declare(
+        "missing_life_oil_production",
+        ConfigValue(
+            default="fill",
+            domain=In(["fill", "remove"]),
+            doc="Method for processing missing lifetime oil production rate",
+        ),
+    )
+    config.declare(
+        "fill_age",
+        ConfigValue(
+            default=100,
+            # Assuming that no well is older than 350 years
+            domain=InRange(0, 350),
+            doc="Value to fill with, if the age is missing",
+        ),
+    )
+    config.declare(
+        "fill_depth",
+        ConfigValue(
+            default=1000,
+            # Assuming that no well is deeper than 40,000 ft
+            domain=InRange(0, 40000),
+            doc="Value to fill with, if the depth is missing",
+        ),
+    )
+    config.declare(
+        "fill_well_type",
+        ConfigValue(
+            default="Oil",
+            domain=In(["Oil", "Gas"]),
+            doc="Well-type assumption if it is not specified",
+        ),
+    )
+    config.declare(
+        "fill_well_type_depth",
+        ConfigValue(
+            default="Deep",
+            domain=In(["Deep", "Shallow"]),
+            doc="Well-type (by depth) assumption if it is not specified",
+        ),
+    )
+    config.declare(
+        "fill_ann_gas_production",
+        ConfigValue(
+            default=0.0,
+            domain=NonNegativeFloat,
+            doc=(
+                "Value to fill with, if the annual gas production "
+                "[in Mcf/Year] is not specified"
+            ),
+        ),
+    )
+    config.declare(
+        "fill_ann_oil_production",
+        ConfigValue(
+            default=0.0,
+            domain=NonNegativeFloat,
+            doc=(
+                "Value to fill with, if the annual oil production "
+                "[in bbl/Year] is not specified"
+            ),
+        ),
+    )
+    config.declare(
+        "fill_life_gas_production",
+        ConfigValue(
+            default=0.0,
+            domain=NonNegativeFloat,
+            doc=(
+                "Value to fill with, if the lifelong gas production [in Mcf] "
+                "is not specified"
+            ),
+        ),
+    )
+    config.declare(
+        "fill_life_oil_production",
+        ConfigValue(
+            default=0.0,
+            domain=NonNegativeFloat,
+            doc=(
+                "Value to fill with, if the lifelong oil production [in bbl] "
+                "is not specified"
+            ),
+        ),
+    )
+
+    config.declare(
+        "min_lifetime_gas_production",
+        ConfigValue(
+            domain=NonNegativeFloat,
+            doc=(
+                "The minimum gas production over lifetime (in MCF) to consider a well"
+                " eligible for plugging"
+            ),
+        ),
+    )
+
+    config.declare(
+        "max_lifetime_gas_production",
+        ConfigValue(
+            domain=NonNegativeFloat,
+            doc=(
+                "The maximum gas production over lifetime (in MCF) to consider a well"
+                " eligible for plugging"
+            ),
+        ),
+    )
+
+    config.declare(
+        "min_lifetime_oil_production",
+        ConfigValue(
+            domain=NonNegativeFloat,
+            doc=(
+                "The minimum oil production over lifetime (in Bbl) to consider a well"
+                " eligible for plugging"
+            ),
+        ),
+    )
+
+    config.declare(
+        "max_lifetime_oil_production",
+        ConfigValue(
+            domain=NonNegativeFloat,
+            doc=(
+                "The maximum oil production over lifetime (in Bbl) to consider a well"
+                " eligible for plugging"
+            ),
+        ),
+    )
+
+    config.declare(
+        "well_depth_limit",
+        ConfigValue(
+            domain=NonNegativeFloat,
+            doc=(
+                "The cutoff depth (in feet) for a well to be considered shallow. "
+                "Wells larger in depth are considered 'deep'"
+            ),
+        ),
+    )
+    config.declare(
+        "impact_metrics",
+        ConfigValue(
+            default=None,
+            domain=IsInstance(ImpactMetrics),
+            doc="Impact metrics for well priority ranking",
+        ),
+    )
+    config.declare(
+        "efficiency_metrics",
+        ConfigValue(
+            domain=IsInstance(EfficiencyMetrics),
+            doc="Efficiency metrics for computing project efficiencies",
+        ),
+    )
+    config.declare(
+        "scenario_type",
+        ConfigValue(
+            default=ScenarioType(),
+            domain=IsInstance(ScenarioType),
+            doc="Capabilities of PRIMO that used in the scenario",
+        ),
+    )
+    config.declare(
+        "priority_score_reverse",
+        ConfigValue(
+            default=False,
+            domain=bool,
+            doc=(
+                "Whether a higher priority score means a lower priority of the well"
+                "or not"
+            ),
+        ),
+    )
+    config.declare(
+        "threshold_daily_production_boe",
+        ConfigValue(
+            domain=NonNegativeFloat,
+            doc="Remove wells whose production rate exceeds this value (BOE per day)",
+        ),
+    )
+
+    return config
+
+
+@dataclass
+class ScenarioType:
+    """
+    Class for identifying capabilities implemented in the scenario
+
+    Parameters
+    ----------
+    well_ranking: Bool
+        Whether the well ranking capability is used or not
+
+    project_recommendation: Bool
+        Whether the P&A project recommendation capability is used or not
+
+    project_comparison: Bool
+        Whether the P&A project comparison capability is used or not
+    """
+
+    well_ranking: bool = True
+    project_recommendation: bool = True
+    project_comparison: bool = False
+
+    def __post_init__(self):
+        if (self.well_ranking and self.project_comparison) or (
+            self.project_recommendation and self.project_comparison
+        ):
+            raise_exception(
+                "Project comparison cannot be used together with well ranking "
+                "or project recommendation.",
+                ValueError,
+            )
+
+    def __str__(self):
+        return (
+            f"ScenarioType(well_ranking_used={self.well_ranking}, "
+            f"project_recommendation_used={self.project_recommendation}, "
+            f"project_comparison_used={self.project_comparison},)"
+        )
