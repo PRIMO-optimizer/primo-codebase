@@ -34,7 +34,7 @@ dependencies = [
     "censusgeocode==0.5.2",
     "folium==0.20.0",
     "geopandas==1.1.1; python_version>= '3.10'",
-    "highspy==1.9.0",
+    "highspy==1.15.1",
     "haversine==2.9.0",
     "ipyfilechooser==0.6.0",
     "ipyleaflet==0.20.0",
