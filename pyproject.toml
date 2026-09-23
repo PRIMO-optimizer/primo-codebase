@@ -40,7 +40,7 @@ dependencies = [
     "ipyleaflet==0.20.0",
     "ipywidgets==8.1.7",
     "k-means-constrained==0.9.0",
-    "matplotlib==3.10.5; python_version >= '3.10'",
+    "matplotlib==3.10.9; python_version >= '3.10'",
     "networkx==3.4.2; python_version == '3.10'",
     "networkx==3.5; python_version >= '3.11'",
     "notebook==6.5.7",
