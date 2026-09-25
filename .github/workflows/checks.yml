@@ -6,7 +6,16 @@ name: Checks
 on:
   push:
     branches: ["main"]
-  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    types:
+      - opened
+      # ready_for_review occurs when a draft PR is turned to non-draft
+      - ready_for_review
+      # synchronize occurs whenever commits are pushed to the PR branch
+      - synchronize
+  # allows manual trigger
+  workflow_dispatch: 
 
 defaults:
   run:
@@ -46,6 +55,8 @@ jobs:
           - install-mode: dev
             pip-install-target: -r requirements-dev.txt
           - install-mode: dev
+            # only runs codecov once on python version 3.11 instead of the full matrix
+            python-version: '3.13'
             os: linux
             cov-report: true
     steps:
