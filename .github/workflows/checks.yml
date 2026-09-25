@@ -56,7 +56,7 @@ jobs:
             pip-install-target: -r requirements-dev.txt
           - install-mode: dev
             # only runs codecov once on python version 3.11 instead of the full matrix
-            python-version: '3.11'
+            python-version: '3.13'
             os: linux
             cov-report: true
     steps:
