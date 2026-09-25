@@ -76,7 +76,7 @@ requires-python = ">=3.10, <3.14"
 dev = [
     "addheader==0.3.2",
     "black==25.1.0",
-    "isort==6.0.1",
+    "isort==9.0.1",
     "linkify-it-py==2.0.3",
     "myst-parser==4.0.1; python_version >= '3.10'",
     "nbsphinx==0.9.7",
