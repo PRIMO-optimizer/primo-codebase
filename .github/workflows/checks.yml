@@ -14,6 +14,8 @@ on:
       - ready_for_review
       # synchronize occurs whenever commits are pushed to the PR branch
       - synchronize
+  # allows manual trigger
+  workflow_dispatch: 
 
 defaults:
   run:
