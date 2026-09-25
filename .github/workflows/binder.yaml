@@ -1,19 +1,24 @@
 # This workflow will ensure a new image is created and cached on mybinder.org every
 # time a PR is merged to ensure the newest image is cached and ready to go on Binder
 
+# Note that per this file: https://github.com/festim-dev/FESTIM-workshop/blob/main/CLAUDE.md
+# The repo2docker method of building the binder cache fails due to repo2docker curl being 
+# routed to a decommissioned binder server
+
 name: Binder
+
 on:
   push:
     branches: ["main"]
-      
+
 jobs:
-    create-mybinder-cache:
-        runs-on: ubuntu-latest
-        steps:
-            - name: cache build on mybinder.org
-              uses: jupyterhub/repo2docker-action@master
-              with:
-                NO_PUSH: true
-                # This builds the container on mybinder.org 
-                # with the branch that was pushed on.
-                MYBINDERORG_TAG: ${{ github.event.ref }} 
+  create-mybinder-cache:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Binder cache build
+        run: |
+          curl -L \
+            --connect-timeout 20 \
+            --max-time 900 \
+            "https://mybinder.org/build/gh/${{ github.repository }}/${{ github.sha }}"
