@@ -128,9 +128,6 @@ def test_dunder_methods(get_well_data_from_csv):
     assert list(wd) == list(range(2, 52))
 
     # Testing the __getitem__ dunder method
-    # assert wd[col_names.age] is wd.data[col_names.age]
-    # assert wd[col_names.depth] is wd.data[col_names.depth]
-
     assert np.shares_memory(wd[col_names.age], wd.data[col_names.age])
     assert np.shares_memory(wd[col_names.depth], wd.data[col_names.depth])
 
