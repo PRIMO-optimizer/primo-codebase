@@ -3,8 +3,7 @@
 
 # PRIMO - The P&A Project Optimizer Toolkit
 
-PRIMO - The P&A Project Optimizer Toolkit aims to provide multi-scale, simulation-based, open source
-computational tools and models for well plugging projects to support the National Energy Technology Laboratory (NETL).
+PRIMO - The Oil & Gas Well Plugging Optimizer supports decision makers (state agencies, large-scale well operators, plugging companies, etc.) to (1) prioritize end-of-life wells for Plugging & Abandonment (P&A) operations, (2) design high-impact and/or high-efficiency P&A projects, and (3) compare P&A projects in an unbiased, fully transparent, and defensible way.
 
 ## Project Status
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/primo-optimizer.svg)](https://pypi.org/project/primo-optimizer/)
