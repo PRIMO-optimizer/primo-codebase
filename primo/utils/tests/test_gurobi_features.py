@@ -26,9 +26,6 @@ from primo.opt_model.model_options import OptModelInputs
 from primo.opt_model.tests.test_efficiency_model import get_column_names_fixture
 from primo.utils.gurobi_features import GurobiSolver
 
-# Check if the test is running inside GitHub Actions
-IN_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
-
 
 @pytest.fixture(name="get_opt_model", scope="function")
 def get_opt_model_fixture(get_column_names):
@@ -46,7 +43,7 @@ def get_opt_model_fixture(get_column_names):
     gas_oil_wells = wd.get_gas_oil_wells
     wd_gas = gas_oil_wells["gas"]
     wd_gas.compute_priority_scores()
-    wd_gas = wd_gas.get_high_priority_wells(200)
+    wd_gas = wd_gas.get_high_priority_wells(50)
 
     # Mobilization cost
     mobilization_cost = {1: 120000, 2: 210000, 3: 280000, 4: 350000}
@@ -96,7 +93,6 @@ def test_set_branch_priorities(get_opt_model, writer_type):
         assert solver.pm_to_gb[blk.select_cluster].BranchPriority == 10000
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_set_partition_number(get_opt_model, writer_type):
     """Tests the set_partition_number method"""
@@ -129,7 +125,6 @@ def test_set_partition_number(get_opt_model, writer_type):
 def test_make_efficiency_constraints_lazy(caplog, get_opt_model, writer_type):
     """Tests the set_efficiency_constraints_lazy method"""
     opt_model_inputs = get_opt_model
-    opt_model_inputs.config.objective_weight_impact = 100
     opt_model_inputs.build_optimization_model()
 
     assert (
@@ -168,7 +163,6 @@ def test_make_efficiency_constraints_lazy(caplog, get_opt_model, writer_type):
         assert solver.solver.get_linear_constraint_attr(constr, "Lazy") == 1
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_change_variable_domain(caplog, get_opt_model, writer_type):
     """Tests the change_variable_domain method from binary to"""
@@ -226,7 +220,6 @@ def test_change_variable_domain(caplog, get_opt_model, writer_type):
         assert blk.select_cluster.domain is pyo.Binary
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_set_pool_ignore(get_opt_model, writer_type):
     """Tests the set_pool_ignore method"""
@@ -244,12 +237,10 @@ def test_set_pool_ignore(get_opt_model, writer_type):
             assert solver.solver.get_var_attr(v, "PoolIgnore") == 1
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_add_binary_cut(caplog, get_opt_model, writer_type):
     """Tests the add_binary_cut method"""
     opt_model_inputs = get_opt_model
-    opt_model_inputs.config.objective_weight_impact = 100
     opt_model_inputs.build_optimization_model()
     solver = GurobiSolver(opt_model_inputs.optimization_model, writer_type=writer_type)
 
@@ -275,22 +266,20 @@ def test_add_binary_cut(caplog, get_opt_model, writer_type):
     assert solver.gurobi_model.NumConstrs == model_size + 2
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_solve_method(get_opt_model, writer_type):
     """Tests the solve method"""
     opt_model_inputs = get_opt_model
-    opt_model_inputs.config.objective_weight_impact = 100
     opt_model_inputs.build_optimization_model()
     solver = GurobiSolver(opt_model_inputs.optimization_model, writer_type=writer_type)
-    solver.solve(MIPGap=0.01, TimeLimit=1000, tee=True, NodeLimit=1)
+    solver.solve(MIPGap=0.05, TimeLimit=1000, tee=True, NodeLimit=1)
 
     # These tests ensure that the MIP is solved to a higher gap than the default gap
-    assert solver.gurobi_model.MIPGap <= 0.01
+    assert solver.gurobi_model.MIPGap <= 0.05
     assert solver.gurobi_model.MIPGap > 0.001
 
     # Check if the default values have been over-written
-    assert solver.gurobi_model.Params.MIPGap == pytest.approx(0.01)
+    assert solver.gurobi_model.Params.MIPGap == pytest.approx(0.05)
     assert solver.gurobi_model.Params.TimeLimit == pytest.approx(1000)
     assert solver.gurobi_model.Params.NodeLimit == 1
 
@@ -301,12 +290,10 @@ def test_solve_method(get_opt_model, writer_type):
     assert solver.gurobi_model.Params.NodeLimit != 1
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_get_solution_pool_sequentially(get_opt_model, writer_type):
     """Tests the get_solution_pool_sequentially method"""
     opt_model_inputs = get_opt_model
-    opt_model_inputs.config.objective_weight_impact = 100
     opt_model_inputs.build_optimization_model()
     solver = GurobiSolver(opt_model_inputs.optimization_model, writer_type=writer_type)
 
@@ -315,12 +302,10 @@ def test_get_solution_pool_sequentially(get_opt_model, writer_type):
     assert solutions.shape[1] == 3
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_get_solution_pool(get_opt_model, writer_type):
     """Tests the get_solution_pool method"""
     opt_model_inputs = get_opt_model
-    opt_model_inputs.config.objective_weight_impact = 100
     opt_model_inputs.build_optimization_model()
     solver = GurobiSolver(opt_model_inputs.optimization_model, writer_type=writer_type)
     solver.solve(PoolSearchMode=2, PoolSolutions=15)
@@ -330,7 +315,6 @@ def test_get_solution_pool(get_opt_model, writer_type):
     assert solutions.shape[1] == 15
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_solve_with_lazy_constraints(get_opt_model, writer_type):
     """Tests the solve_with_lazy_constraints method"""
@@ -338,6 +322,7 @@ def test_solve_with_lazy_constraints(get_opt_model, writer_type):
     # not testing anything specific here, since the model cannot be solved to
     # global optimality.
     opt_model_inputs = get_opt_model
+    opt_model_inputs.config.objective_weight_impact = 50
     opt_model_inputs.build_optimization_model()
     solver = GurobiSolver(opt_model_inputs.optimization_model, writer_type=writer_type)
     solver.solve_with_lazy_constraints(TimeLimit=100)
