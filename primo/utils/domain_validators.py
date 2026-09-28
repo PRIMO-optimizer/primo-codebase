@@ -14,10 +14,13 @@
 This module contains functions that can be used for domain validation
 with the `ConfigDict()` data structure from Pyomo.
 """
+
 # Standard libs
+from types import SimpleNamespace
 from typing import Dict
 
 # Installed libs
+import numpy as np
 from pyomo.common.config import NonNegativeFloat
 
 # User-defined libs
@@ -71,3 +74,80 @@ def validate_mobilization_cost(data: Dict[int, float]):
     for key, val in data.items():
         data[key] = NonNegativeFloat(val)
     return data
+
+
+def is_valid_zone_data(data: dict):
+    """
+    Domain validator for zone data for efficiency metrics
+
+    Parameters
+    ----------
+    data : dict
+        Keys correspond to the zone's outer boundary, and the values
+        correspond to the corresponding zonal efficiency (as a fraction)
+    """
+    points = list(data.keys())
+    efficiency = list(data.values())
+
+    # Check if zones are in ascending order or not
+    if not np.allclose(points, sorted(points)):
+        raise ValueError(f"Zones in {data} are not in ascending order")
+
+    # Raise an error if the zone length is zero
+    for index in range(len(points) - 1):
+        if np.isclose(points[index], points[index + 1]):
+            raise ValueError(f"Zones {index + 1} and {index + 2} are identical!")
+
+    # Check if all efficiencies are less than 1
+    if any(np.array(efficiency) < 0) or any(np.array(efficiency) > 1):
+        raise ValueError("Received an efficiency value outside [0, 1] interval")
+
+    # Check if all efficiencies are arranged in descending order
+    if not np.allclose(efficiency, sorted(efficiency, reverse=True)):
+        raise ValueError("Zonal efficiencies are not in descending order")
+
+    # Efficiency of the first zone must be 1
+    if not np.isclose(efficiency[0], 1):
+        raise ValueError(f"Efficiency of the first zone {efficiency[0]} is not 1")
+
+    # If the zero efficiency zone is not specified, then set it to infinity.
+    if efficiency[-1] != 0:
+        data[float("inf")] = 0
+
+    # Compute the coefficients of the zone binary variables
+    coeff = {}
+    previous_zone_eff = 1
+    for zone, eff in enumerate(data.values()):
+        coeff[zone + 1] = previous_zone_eff - eff
+        previous_zone_eff = eff
+
+    zone_data = {
+        "data": data,
+        "zones": list(coeff.keys()),
+        "points": [0] + list(data.keys()),
+        "coeff": coeff,
+    }
+
+    return SimpleNamespace(**zone_data)
+
+
+def is_valid_inverse_priority_zone_data(data: dict):
+    """
+    Domain validator for zone data for efficiency metrics
+    with inverse priority i.e., a higher value ==> higher efficiency
+
+    Parameters
+    ----------
+    data : dict
+        Keys correspond to the zone's outer boundary, and the values
+        correspond to the corresponding zonal efficiency (as a fraction)
+    """
+
+    # Take complement of the data and use is_valid_zone_data
+    comp_data = {k: 1 - v for k, v in data.items()}
+    zone_data = is_valid_zone_data(comp_data)
+
+    # Take another complement to get the correct values
+    zone_data.data = {k: 1 - v for k, v in zone_data.data.items()}
+
+    return zone_data

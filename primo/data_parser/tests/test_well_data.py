@@ -1625,3 +1625,15 @@ def test_filling_missing_data_when_no_default(
         assert wd.data[wd.data["API Well Number"] == "61821"][
             "Endangered Species [Yes/No]"
         ].iloc[0] == pytest.approx(0)
+
+
+def test_scenario_type_class():
+    st = ScenarioType(
+        well_ranking=True, project_recommendation=True, project_comparison=False
+    )
+
+    assert str(st) == (
+        "ScenarioType(well_ranking_used=True, "
+        "project_recommendation_used=True, "
+        "project_comparison_used=False,)"
+    )

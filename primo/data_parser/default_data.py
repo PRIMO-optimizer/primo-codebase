@@ -19,6 +19,12 @@ from typing import Optional, Union
 # Installed libs
 from pyomo.common.config import Bool, NonNegativeFloat, NonNegativeInt
 
+# User-defined libs
+from primo.utils.domain_validators import (
+    is_valid_inverse_priority_zone_data,
+    is_valid_zone_data,
+)
+
 LOGGER = logging.getLogger(__name__)
 
 # This file should contain all the constants
@@ -88,6 +94,10 @@ class _SupportedContent:
     # E.g., Compliance, production volume, etc.
     has_inverse_priority: bool = False
     fill_missing_value: Optional[dict] = None
+    # scaling factor for efficiency metrics
+    normalization_factor: Optional[dict] = None
+    # zone data for efficiency metrics
+    zone_data: Optional[dict] = None
 
 
 WELL_HISTORY_METRICS = {
@@ -653,13 +663,25 @@ SUPP_IMPACT_METRICS = {
 # efficiency calculation
 SUPP_EFF_METRICS = {
     "num_wells": _SupportedContent(
-        name="num_wells", full_name="Number of Wells", required_data="well_id"
+        name="num_wells",
+        full_name="Number of Wells",
+        required_data="well_id",
+        normalization_factor={"domain": NonNegativeInt, "default": 25},
+        zone_data={
+            "domain": is_valid_inverse_priority_zone_data,
+            "default": {5: 0, 10: 0.2, 15: 0.4, 20: 0.6, 25: 0.8},
+        },
     ),
     "num_unique_owners": _SupportedContent(
         name="num_unique_owners",
         full_name="Number of Unique Owners",
         required_data="operator_name",
         has_inverse_priority=True,
+        normalization_factor={"domain": NonNegativeInt, "default": 5},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {2: 1.0, 3: 0.75, 4: 0.5, 5: 0.25},
+        },
     ),
     "elevation_delta": _SupportedContent(
         name="elevation_delta",
@@ -667,28 +689,50 @@ SUPP_EFF_METRICS = {
         required_data="elevation_delta",
         has_inverse_priority=True,
         fill_missing_value={"domain": NonNegativeFloat, "default": 0},
+        normalization_factor={"domain": NonNegativeFloat, "default": 50},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {50: 1.0, 150: 0.75, 250: 0.5, 350: 0.25},
+        },
     ),
     "age_range": _SupportedContent(
         name="age_range",
         full_name="Age Range [Years]",
         required_data="age",
         has_inverse_priority=True,
+        normalization_factor={"domain": NonNegativeFloat, "default": 50},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {10: 1.0, 20: 0.75, 30: 0.5, 45: 0.25},
+        },
     ),
     "depth_range": _SupportedContent(
         name="depth_range",
         full_name="Depth Range [ft]",
         required_data="depth",
         has_inverse_priority=True,
+        normalization_factor={"domain": NonNegativeFloat, "default": 4000},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {500: 1.0, 1000: 0.75, 1500: 0.5, 2000: 0.25},
+        },
     ),
     "dist_range": _SupportedContent(
         name="dist_range",
         full_name="Distance Range [miles]",
         has_inverse_priority=True,
         required_data="latitude",
+        normalization_factor={"domain": NonNegativeFloat, "default": 10},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {1: 1.0, 3: 0.75, 6: 0.5, 8: 0.25},
+        },
     ),
     "record_completeness": _SupportedContent(
         name="record_completeness",
         full_name="Record Completeness",
+        normalization_factor={"domain": NonNegativeFloat, "default": 1},
+        zone_data={"domain": is_valid_zone_data, "default": {0.5: 1.0, 0.75: 0.5}},
     ),
     "dist_to_road": _SupportedContent(
         name="dist_to_road",
@@ -696,6 +740,11 @@ SUPP_EFF_METRICS = {
         required_data="dist_to_road",
         has_inverse_priority=True,
         fill_missing_value={"domain": NonNegativeFloat, "default": 0},
+        normalization_factor={"domain": NonNegativeFloat, "default": 0.5},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {0.1: 1.0, 0.5: 0.5, 0.75: 0.25},
+        },
     ),
     "population_density": _SupportedContent(
         name="population_density",
@@ -703,5 +752,10 @@ SUPP_EFF_METRICS = {
         required_data="population_density",
         has_inverse_priority=True,
         fill_missing_value={"domain": NonNegativeFloat, "default": 0},
+        normalization_factor={"domain": NonNegativeFloat, "default": 50},
+        zone_data={
+            "domain": is_valid_zone_data,
+            "default": {100: 1.0, 250: 0.5, 500: 0.25},
+        },
     ),
 }
