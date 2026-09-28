@@ -46,6 +46,7 @@ def get_opt_model_fixture(get_column_names):
     gas_oil_wells = wd.get_gas_oil_wells
     wd_gas = gas_oil_wells["gas"]
     wd_gas.compute_priority_scores()
+    wd_gas = wd_gas.get_high_priority_wells(200)
 
     # Mobilization cost
     mobilization_cost = {1: 120000, 2: 210000, 3: 280000, 4: 350000}
@@ -58,13 +59,12 @@ def get_opt_model_fixture(get_column_names):
         total_budget=1500000,  # 1.5 million USD
         mobilization_cost=mobilization_cost,
         threshold_distance=10,
-        objective_weight_impact=50,
+        objective_weight_impact=100,
     )
 
     return opt_mdl_inputs
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_object_instantiation(get_opt_model, writer_type):
     """Tests object instantiation"""
@@ -79,7 +79,6 @@ def test_object_instantiation(get_opt_model, writer_type):
     assert solver.model is opt_model_inputs.optimization_model
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_set_branch_priorities(get_opt_model, writer_type):
     """Tests the set_branch_priorities method"""
