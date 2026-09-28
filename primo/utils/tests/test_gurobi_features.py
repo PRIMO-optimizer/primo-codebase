@@ -120,7 +120,6 @@ def test_set_partition_number(get_opt_model, writer_type):
             assert writer_type == "new"
 
 
-@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="This test is skipped in GitHub Actions.")
 @pytest.mark.parametrize("writer_type", ["old", "new"])
 def test_make_efficiency_constraints_lazy(caplog, get_opt_model, writer_type):
     """Tests the set_efficiency_constraints_lazy method"""
