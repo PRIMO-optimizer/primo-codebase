@@ -29,7 +29,12 @@ from pyomo.core.base.block import Block, BlockData, declare_custom_block
 from pyomo.environ import NonNegativeReals, Var
 
 # User-defined libs
-from primo.opt_model.efficiency_max_formulation import build_cluster_efficiency_model
+from primo.opt_model.efficiency_max_formulation import (
+    build_cluster_efficiency_model as max_eff_model,
+)
+from primo.opt_model.efficiency_zone_formulation import (
+    build_cluster_efficiency_model as zone_eff_model,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +44,7 @@ class EfficiencyBlockData(BlockData):
     """Container for storing the efficiency calculations"""
 
     # pylint: disable = unused-argument
-    def build(self, *args, formulation_type):
+    def build(self, *args, formulation_type: str | None):
         """
         Builds efficiency model
         """
@@ -47,9 +52,10 @@ class EfficiencyBlockData(BlockData):
             # Return an empty efficiency block model
             pass
         elif formulation_type == "Max Scaling":
-            build_cluster_efficiency_model(self)
+            max_eff_model(self)
         else:
-            raise NotImplementedError("Zone formulation is not supported currently")
+            zone_eff_model(self)
+
         self.append_cluster_eff_vars()
 
     # pylint: disable = attribute-defined-outside-init
@@ -80,10 +86,7 @@ class EfficiencyBlockData(BlockData):
 
         @self.Constraint()
         def calculate_aggregated_efficiency_2(blk):
-            return (
-                sum(blk.aggregated_efficiency[n] for n in cm.num_wells_var.index_set())
-                == blk.cluster_efficiency
-            )
+            return sum(blk.aggregated_efficiency[:]) == blk.cluster_efficiency
 
         try:
             wt_impact = (
