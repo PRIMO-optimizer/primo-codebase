@@ -313,6 +313,11 @@ class GurobiSolver:
         ----------
         sol_count : int
             Size of the solution pool
+
+        Returns
+        -------
+        pandas.DataFrame
+            Solutions as arranged as columns in the DataFrame
         """
         data = {v.name: [] for v in self.pm_to_gb}
         data["objective_function"] = []
@@ -334,6 +339,12 @@ class GurobiSolver:
         """
         Retrieves the solution pool from the solver model, and returns it
         as a DataFrame
+
+
+        Returns
+        -------
+        pandas.DataFrame
+            Solutions as arranged as columns in the DataFrame
         """
         gb_solver = self.gurobi_model
         sel_well_values = {v.name: [] for v in self.pm_to_gb}
