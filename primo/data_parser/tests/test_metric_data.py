@@ -692,3 +692,22 @@ def test_efficiency_metrics_class():
         450: 0.25,
         float("inf"): 0,
     }
+
+
+def test_custom_basis():
+    im_wt = ImpactMetrics(basis=120)
+
+    assert im_wt.basis == 120
+
+    im_wt.set_weight(
+        {
+            "placeholder_one": 20,
+            "placeholder_two": 20,
+            "placeholder_three": 20,
+            "placeholder_four": 20,
+            "placeholder_five": 20,
+            "placeholder_six": 20,
+        }
+    )
+
+    assert im_wt.check_validity() is None
