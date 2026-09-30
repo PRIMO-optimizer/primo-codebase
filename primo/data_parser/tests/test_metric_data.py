@@ -678,3 +678,17 @@ def test_efficiency_metrics_class():
             SUPP_EFF_METRICS[metric.name].normalization_factor["default"]
         )
         assert isinstance(metric.zone_data, SimpleNamespace)
+
+    assert ef_wt.population_density.zone_data.data == {
+        100: 1.0,
+        250: 0.5,
+        500: 0.25,
+        float("inf"): 0,
+    }
+    ef_wt.population_density.zone_data = {150: 1.0, 300: 0.5, 450: 0.25}
+    assert ef_wt.population_density.zone_data.data == {
+        150: 1.0,
+        300: 0.5,
+        450: 0.25,
+        float("inf"): 0,
+    }

@@ -1176,10 +1176,11 @@ class WellData:
                 ValueError,
             )
         if self.data[wcn.cost_of_plugging].isna().any():
-            if self.config.fill_user_plugging_cost is not None:
-                fill_plugging_cost = self.config.fill_user_plugging_cost
-            else:
-                fill_plugging_cost = self.data[wcn.cost_of_plugging].max()
+            fill_plugging_cost = (
+                self.config.fill_user_plugging_cost
+                if self.config.fill_user_plugging_cost is not None
+                else self.data[wcn.cost_of_plugging].max()
+            )
             self.fill_incomplete_data(
                 col_name=wcn.cost_of_plugging,
                 value=fill_plugging_cost,
@@ -1346,7 +1347,7 @@ class WellData:
         Obtain rank of wells based on the priority score.
         """
         if hasattr(self._col_names, "well_rank"):
-            LOGGER.info("Well rank already computed.")
+            LOGGER.warning("Well rank already computed.")
             return
 
         if hasattr(self._col_names, "priority_score"):
@@ -1368,7 +1369,6 @@ class WellData:
                 "Priority scores are not calculated. Please use the "
                 "compute_priority_scores method before computing well rank."
             )
-            return
 
     def save_to_file(self, filename: str):
         """

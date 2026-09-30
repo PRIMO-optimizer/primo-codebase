@@ -24,9 +24,9 @@ from pyomo.common.config import Bool, ConfigValue
 from primo.data_parser.default_data import (
     SUPP_EFF_METRICS,
     SUPP_IMPACT_METRICS,
-    _SupportedContent,
     WELL_BASED_METRICS,
     WELL_PAIR_METRICS,
+    _SupportedContent,
 )
 from primo.utils.config_utils import UserPriorities
 from primo.utils.raise_exception import raise_exception

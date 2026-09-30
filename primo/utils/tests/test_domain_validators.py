@@ -16,8 +16,8 @@ import pytest
 # User-defined libs
 from primo.utils.domain_validators import (
     InRange,
-    is_valid_zone_data,
     is_valid_inverse_priority_zone_data,
+    is_valid_zone_data,
     validate_mobilization_cost,
 )
 
