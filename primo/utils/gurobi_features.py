@@ -266,8 +266,7 @@ class GurobiSolver:
         vars_with_0_value = data[data["var_value"] == 0]
         vars_with_1_value = data[data["var_value"] == 1]
 
-        if len(vars_with_0_value) + len(vars_with_1_value) != len(data):
-            raise RuntimeError("Some binary variables have non 0/1 values")
+        assert len(vars_with_0_value) + len(vars_with_1_value) == len(data)
 
         num_cuts = len(m.campaign_elimination_cuts)
         LOGGER.info(f"Adding a cut to eliminate solution {num_cuts + 1}")
