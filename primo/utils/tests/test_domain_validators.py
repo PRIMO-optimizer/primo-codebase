@@ -94,7 +94,7 @@ def test_is_valid_zone_data():
     assert zd.data == {1: 1, 3: 0.5, 5: 0.25, float("inf"): 0}
     assert zd.zones == [1, 2, 3, 4]
     assert zd.points == [0, 1, 3, 5, float("inf")]
-    assert zd.coeff == {1: 0, 2: 0.5, 3: 0.25, 4: 0.25}
+    assert zd.efficiency == {1: 1, 2: 0.5, 3: 0.25, 4: 0}
 
 
 def test_is_valid_inverse_priority_zone_data():
@@ -109,6 +109,5 @@ def test_is_valid_inverse_priority_zone_data():
     for k, v in data.items():
         assert v == pytest.approx(zd.data[k])
 
-    coeffs = {1: 0, 2: 0.1, 3: 0.2, 4: 0.3, 5: 0.35, 6: 0.05}
-    for k, v in zd.coeff.items():
-        assert v == pytest.approx(coeffs[k])
+    for k, v in enumerate(zd.data.values()):
+        assert v == pytest.approx(zd.efficiency[k + 1])

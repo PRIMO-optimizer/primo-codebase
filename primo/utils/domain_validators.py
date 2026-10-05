@@ -114,18 +114,13 @@ def is_valid_zone_data(data: dict):
     if efficiency[-1] != 0:
         data[float("inf")] = 0
 
-    # Compute the coefficients of the zone binary variables
-    coeff = {}
-    previous_zone_eff = 1
-    for zone, eff in enumerate(data.values()):
-        coeff[zone + 1] = previous_zone_eff - eff
-        previous_zone_eff = eff
+    set_of_zones = list(range(1, len(data) + 1))
 
     zone_data = {
         "data": data,
-        "zones": list(coeff.keys()),
+        "zones": set_of_zones,
         "points": [0] + list(data.keys()),
-        "coeff": coeff,
+        "efficiency": dict(zip(set_of_zones, data.values())),
     }
 
     return SimpleNamespace(**zone_data)
@@ -149,5 +144,6 @@ def is_valid_inverse_priority_zone_data(data: dict):
 
     # Take another complement to get the correct values
     zone_data.data = {k: 1 - v for k, v in zone_data.data.items()}
+    zone_data.efficiency = {k: 1 - v for k, v in zone_data.efficiency.items()}
 
     return zone_data
