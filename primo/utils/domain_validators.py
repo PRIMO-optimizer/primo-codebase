@@ -76,15 +76,25 @@ def validate_mobilization_cost(data: Dict[int, float]):
     return data
 
 
-def is_valid_zone_data(data: dict):
+def is_valid_zone_data(data: dict[float, float]):
     """
     Domain validator for zone data for efficiency metrics
 
     Parameters
     ----------
     data : dict
-        Keys correspond to the zone's outer boundary, and the values
-        correspond to the corresponding zonal efficiency (as a fraction)
+        Keys contain the zone's outer boundary, and the values
+        contain the corresponding zonal efficiency (as a fraction).
+        E.g.: {3: 1.0, 5: 0.75, 7: 0.5, 9: 0.25, float("inf"): 0}
+
+    Returns
+    -------
+    SimpleNamespace
+        With attributes `data`, `zones`, `points`, `efficiency`.
+        Dictionary `data` contains the formatted input zone data,
+        `zones` is a list of zone indices, `points` is a list of
+        zone edges/boundary points, and `efficiency` is a dictionary
+        with keys as zones and values as efficiency.
     """
     points = list(data.keys())
     efficiency = list(data.values())
@@ -126,7 +136,7 @@ def is_valid_zone_data(data: dict):
     return SimpleNamespace(**zone_data)
 
 
-def is_valid_inverse_priority_zone_data(data: dict):
+def is_valid_inverse_priority_zone_data(data: dict[float, float]):
     """
     Domain validator for zone data for efficiency metrics
     with inverse priority i.e., a higher value ==> higher efficiency
@@ -134,8 +144,17 @@ def is_valid_inverse_priority_zone_data(data: dict):
     Parameters
     ----------
     data : dict
-        Keys correspond to the zone's outer boundary, and the values
-        correspond to the corresponding zonal efficiency (as a fraction)
+        Keys contain the zone's outer boundary, and the values
+        contain the corresponding zonal efficiency (as a fraction).
+
+    Returns
+    -------
+    SimpleNamespace
+        With attributes `data`, `zones`, `points`, `efficiency`.
+        Dictionary `data` contains the formatted input zone data,
+        `zones` is a list of zone indices, `points` is a list of
+        zone edges/boundary points, and `efficiency` is a dictionary
+        with keys as zones and values as efficiency.
     """
 
     # Take complement of the data and use is_valid_zone_data
