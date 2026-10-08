@@ -19,6 +19,11 @@ import pytest
 from pyomo.common.config import Bool, NonNegativeFloat
 
 # User-defined libs
+from primo.data_parser.default_data import (
+    SUPP_EFF_METRICS,
+    WELL_BASED_METRICS,
+    WELL_PAIR_METRICS,
+)
 from primo.data_parser.metric_data import (
     EfficiencyMetrics,
     ImpactMetrics,
@@ -115,6 +120,14 @@ def test_metric_class(caplog):
     assert z.is_binary_type
     assert z.fill_missing_value is True
 
+    assert z.normalization_factor is None
+    assert z.zone_data is None
+
+    z.normalization_factor = 42
+    z.zone_data = 42
+    assert z.normalization_factor == 42
+    assert z.zone_data == 42
+
 
 def test_submetric_class():
     z_par = Metric("par_metric", 40, full_name="Parent Metric One")
@@ -132,6 +145,18 @@ def test_submetric_class():
 
 
 def test_set_of_metrics_class():
+    # Test invalid basis value
+    with pytest.raises(
+        TypeError, match="Metric basis must be an integer. Received 100.5."
+    ):
+        z = SetOfMetrics(basis=100.5)
+
+    with pytest.raises(
+        ValueError, match="Metric basis must be a positive integer. Received -100."
+    ):
+        z = SetOfMetrics(basis=-100)
+
+    # Test instantiation and dunder methods
     z = SetOfMetrics()
 
     z.register_new_metric("met_1", "Metric One")
@@ -308,6 +333,21 @@ def test_set_of_metrics_class():
         ),
     ):
         z.register_new_metric("met_2")
+
+    # Test the selected_metrics method
+    z.register_new_metric("met_4", "Metric 4")
+    z.register_new_submetric("sub_met_4_1", z.met_4, "Submetric 4-1")
+    z.register_new_submetric("sub_met_4_2", z.met_4, "Submetric 4-2")
+    assert len(list(z)) == 10
+    assert len(z.selected_metrics) == 5  # Since weights of metric 4 are zeros
+    assert set(z.selected_metrics) == {
+        z.sub_met_1_1,
+        z.sub_met_1_2,
+        z.met_2,
+        z.sub_met_3_1,
+        z.sub_met_3_2,
+    }
+    z.delete_metric("met_4")
 
     # Try deleting primary metric on z.met_1. This should automatically delete submetrics
     z.delete_metric("met_1")
@@ -623,6 +663,35 @@ def test_efficiency_metrics_class():
         }
     )
     assert ef_wt.check_validity() is None
+
+    for metric in WELL_BASED_METRICS:
+        assert getattr(ef_wt, metric).metric_type == "well_based"
+
+    for metric in WELL_PAIR_METRICS:
+        assert getattr(ef_wt, metric).metric_type == "well_pair"
+
+    assert ef_wt.num_wells.metric_type == "num_wells"
+    assert ef_wt.num_unique_owners.metric_type == "num_unique_owners"
+
+    for metric in ef_wt:
+        assert metric.normalization_factor == pytest.approx(
+            SUPP_EFF_METRICS[metric.name].normalization_factor["default"]
+        )
+        assert isinstance(metric.zone_data, SimpleNamespace)
+
+    assert ef_wt.population_density.zone_data.data == {
+        100: 1.0,
+        250: 0.5,
+        500: 0.25,
+        float("inf"): 0,
+    }
+    ef_wt.population_density.zone_data = {150: 1.0, 300: 0.5, 450: 0.25}
+    assert ef_wt.population_density.zone_data.data == {
+        150: 1.0,
+        300: 0.5,
+        450: 0.25,
+        float("inf"): 0,
+    }
 
 
 def test_custom_basis():
