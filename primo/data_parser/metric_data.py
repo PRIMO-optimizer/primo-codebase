@@ -24,6 +24,8 @@ from pyomo.common.config import Bool, ConfigValue
 from primo.data_parser.default_data import (
     SUPP_EFF_METRICS,
     SUPP_IMPACT_METRICS,
+    WELL_BASED_METRICS,
+    WELL_PAIR_METRICS,
     _SupportedContent,
 )
 from primo.utils.config_utils import UserPriorities
@@ -106,6 +108,15 @@ class Metric:  # pylint: disable=too-many-instance-attributes
             )
         )
         self._fill_missing_value._name = self.name
+
+        # The following two attributes are needed only for
+        # efficiency metrics
+        self._normalization_factor = ConfigValue(
+            doc=f"Scaling factor for efficiency metric {self.full_name}"
+        )
+        self._zone_data = ConfigValue(
+            doc=f"Zone efficiency information for metric {self.full_name}"
+        )
 
     def __str__(self) -> str:
         """Format for printing the object"""
@@ -227,6 +238,24 @@ class Metric:  # pylint: disable=too-many-instance-attributes
         # Set the metric type to be binary if the domain is bool
         if domain is bool or domain is Bool:
             self.is_binary_type = True
+
+    @property
+    def normalization_factor(self):
+        """Returns the normalization factor (valid only for efficiency metrics)"""
+        return self._normalization_factor.value()
+
+    @normalization_factor.setter
+    def normalization_factor(self, value):
+        self._normalization_factor.set_value(value)
+
+    @property
+    def zone_data(self):
+        """Returns zone data (valid only for efficiency metrics)"""
+        return self._zone_data.value()
+
+    @zone_data.setter
+    def zone_data(self, value):
+        self._zone_data.set_value(value)
 
 
 class SubMetric(Metric):
@@ -445,6 +474,15 @@ class SetOfMetrics:
             if not hasattr(val, "submetrics")
         }
         return SimpleNamespace(**weights)
+
+    @property
+    def selected_metrics(self):
+        """Returns the list of metrics with non-zero weights"""
+        return [
+            metric
+            for metric in self
+            if not hasattr(metric, "submetrics") and metric.effective_weight > 0
+        ]
 
     # pylint: disable=too-many-arguments
     # pylint: disable=too-many-positional-arguments
@@ -767,10 +805,7 @@ class SetOfMetrics:
 
         _, from_widget_labels = widget_obj.get_widget_label_maps()
         for key, obj in from_widget_labels.items():
-            if key in priority_weights:
-                obj.weight = priority_weights[key]
-            else:
-                obj.weight = 0
+            obj.weight = priority_weights.get(key, 0)
 
         self.check_validity()
 
@@ -802,3 +837,30 @@ class EfficiencyMetrics(SetOfMetrics):
         if efficiency_metrics is None:
             efficiency_metrics = SUPP_EFF_METRICS
         super().__init__(efficiency_metrics)
+
+        for metric in self:
+            # Declare metric type
+            if metric.name in WELL_BASED_METRICS:
+                metric.metric_type = "well_based"
+            elif metric.name in WELL_PAIR_METRICS:
+                metric.metric_type = "well_pair"
+            else:
+                metric.metric_type = metric.name
+
+            # Set nominal scaling factor
+            nf = metric._normalization_factor
+            nf.set_domain(
+                efficiency_metrics[metric.name].normalization_factor["domain"]
+            )
+            nf.set_default_value(
+                efficiency_metrics[metric.name].normalization_factor["default"]
+            )
+            nf.set_value(
+                efficiency_metrics[metric.name].normalization_factor["default"]
+            )
+
+            # Set Zone data
+            zd = metric._zone_data
+            zd.set_domain(efficiency_metrics[metric.name].zone_data["domain"])
+            zd.set_default_value(efficiency_metrics[metric.name].zone_data["default"])
+            zd.set_value(efficiency_metrics[metric.name].zone_data["default"])
