@@ -20,7 +20,6 @@ from pyomo.environ import (
     Constraint,
     Expression,
     NonNegativeReals,
-    Param,
     RangeSet,
     Set,
     Var,
@@ -144,34 +143,6 @@ class ClusterBlockData(BlockData):
             within=Binary,
             doc="Variables to track the total number of wells chosen",
         )
-
-        def num_wells_efficiency_embedding(i, b):
-            """
-            Computes coefficients for efficiency score in the objective function
-
-            Parameters
-            ----------
-            i : int
-                The number of wells in a project
-            b : float
-                A parameter that adjusts the coefficient based on the number of wells
-
-            Returns
-            -------
-            float
-                The coefficient for efficiency score in the objective. Returns 1 if b is zero.
-            """
-            if abs(b) <= 1e-6:
-                return 1
-            return np.log10(b * i) + 1
-
-        self.num_wells_adjustment = Param(
-            range(1, len(self.set_wells) + 1),
-            initialize=lambda i: num_wells_efficiency_embedding(
-                i, params.config.embedding_b
-            ),
-        )
-
         self.plugging_cost = Var(
             within=NonNegativeReals,
             doc="Total cost for plugging wells in this cluster",

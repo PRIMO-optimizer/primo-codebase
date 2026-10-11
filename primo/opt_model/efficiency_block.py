@@ -23,10 +23,12 @@ PluggingCampaignModel/Pyomo ConcreteModel
 
 # Standard libs
 import logging
+from types import SimpleNamespace
 
 # Installed libs
+import numpy as np
 from pyomo.core.base.block import Block, BlockData, declare_custom_block
-from pyomo.environ import NonNegativeReals, Var
+from pyomo.environ import Expression, NonNegativeReals, Var
 
 # User-defined libs
 from primo.opt_model.efficiency_max_formulation import (
@@ -43,6 +45,16 @@ LOGGER = logging.getLogger(__name__)
 class EfficiencyBlockData(BlockData):
     """Container for storing the efficiency calculations"""
 
+    @property
+    def cluster_model(self):
+        """Returns a pointer to the corresponding cluster block"""
+        return self.parent_block()
+
+    @property
+    def plugging_campaign_model(self):
+        """Returns a pointer to the plugging campaign model"""
+        return self.parent_block().parent_block()
+
     # pylint: disable = unused-argument
     def build(self, *args, formulation_type: str | None):
         """
@@ -56,31 +68,48 @@ class EfficiencyBlockData(BlockData):
         else:
             zone_eff_model(self)
 
-        self.append_cluster_eff_vars()
+        self._append_cluster_eff_vars(formulation_type)
 
     # pylint: disable = attribute-defined-outside-init
-    def append_cluster_eff_vars(self):
+    def _append_cluster_eff_vars(self, formulation_type: str | None):
         """
         Adds the common constraints
 
         Parameters
         ----------
-        eff_vars : list, optional, default = None
-            List of efficiency variables. This is needed for the
-            max formulation, and this is not needed for the zone
-            formulation
+        formulation_type : str | None
+            Efficiency model type
         """
 
-        cm = self.parent_block()  # ClusterBlock Model
+        try:
+            params = self.plugging_campaign_model.model_inputs.config
+        except AttributeError:
+            # This exception occurs only in tests
+            LOGGER.warning("Unable to find config block in OptModelInputs")
+            params = SimpleNamespace(
+                **{"embedding_b": 0.0, "objective_weight_impact": 0}
+            )
+
+        wt_efficiency = (100 - params.objective_weight_impact) / 100
+
+        if formulation_type == "Zone":
+            self.cluster_efficiency_score = Expression(
+                expr=wt_efficiency
+                * sum(blk.score for blk in self.component_data_objects(Block))
+            )
+            return
+
+        cm = self.cluster_model  # ClusterBlock Model
+
         # Declare variables
         self.cluster_efficiency = Var(within=NonNegativeReals)
         self.aggregated_efficiency = Var(
-            cm.num_wells_var.index_set(),
+            cm.set_num_wells,
             within=NonNegativeReals,
             doc="num_wells_var * cluster_efficiency",
         )
 
-        @self.Constraint(cm.num_wells_var.index_set())
+        @self.Constraint(cm.set_num_wells)
         def calculate_aggregated_efficiency_1(blk, n):
             return blk.aggregated_efficiency[n] <= 100 * cm.num_wells_var[n]
 
@@ -88,21 +117,19 @@ class EfficiencyBlockData(BlockData):
         def calculate_aggregated_efficiency_2(blk):
             return sum(blk.aggregated_efficiency[:]) == blk.cluster_efficiency
 
-        try:
-            wt_impact = (
-                self.parent_block()
-                .parent_block()
-                .model_inputs.config.objective_weight_impact
+        @self.Param(cm.set_num_wells)
+        def num_wells_adjustment(_, i):
+            return (
+                1
+                if np.isclose(params.embedding_b, 0)
+                else np.log10(params.embedding_b * i) + 1
             )
-        except AttributeError:
-            wt_impact = 0
-        wt_efficiency = (100 - wt_impact) / 100
 
         @self.Expression(doc="Total Efficiency Score")
         def cluster_efficiency_score(blk):
             return wt_efficiency * sum(
-                n * cm.num_wells_adjustment[n] * blk.aggregated_efficiency[n]
-                for n in cm.num_wells_var.index_set()
+                n * blk.num_wells_adjustment[n] * blk.aggregated_efficiency[n]
+                for n in cm.set_num_wells
             )
 
         @self.Constraint(doc="Computes the efficiency of the project")
@@ -114,8 +141,18 @@ class EfficiencyBlockData(BlockData):
 
     def get_efficiency_scores(self):
         """Returns a dictionary containing efficiency scores"""
-        scores = {}
-        for blk in self.component_data_objects(Block):
-            scores[blk.name.split(".")[-1]] = blk.score.value
+        if hasattr(self, "cluster_efficiency"):
+            # Score is NOT scaled by number of wells, so use it as is.
+            return {
+                blk.name.split(".")[-1]: blk.score.value
+                for blk in self.component_data_objects(Block)
+            }
 
-        return scores
+        # Score is scaled by number of wells
+        num_wells_chosen = round(self.cluster_model.num_wells_chosen.value)
+        return {
+            blk.name.split(".")[-1]: (
+                blk.score.value / num_wells_chosen if num_wells_chosen >= 1 else 0
+            )
+            for blk in self.component_data_objects(Block)
+        }
