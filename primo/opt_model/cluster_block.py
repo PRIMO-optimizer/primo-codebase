@@ -121,7 +121,23 @@ class ClusterBlockData(BlockData):
             initialize=well_index,
             doc="Set of wells in cluster c",
         )
-        self.set_num_wells = RangeSet(len(self.set_wells))
+
+        if params.config.compute_tighter_var_bounds:
+            _min_num_wells = max(filter(None, [1, params.config.min_wells_in_project]))
+            _max_num_wells = min(
+                filter(
+                    None,
+                    [
+                        params.config.max_wells_in_project,
+                        params.max_num_wells_plugged,
+                        len(self.set_wells),
+                    ],
+                )
+            )
+            self.set_num_wells = RangeSet(_min_num_wells, _max_num_wells)
+        else:
+            self.set_num_wells = RangeSet(len(self.set_wells))
+
         self.set_well_pairs_remove = Set(
             dimen=2,
             initialize=well_pairs_remove,
@@ -139,7 +155,7 @@ class ClusterBlockData(BlockData):
             doc="1, if the well is selected for plugging, 0 otherwise",
         )
         self.num_wells_var = Var(
-            range(1, len(self.set_wells) + 1),
+            self.set_num_wells,
             within=Binary,
             doc="Variables to track the total number of wells chosen",
         )
@@ -265,10 +281,7 @@ class ClusterBlockData(BlockData):
             doc="Determines the number of wells chosen",
         )
         self.num_well_uniqueness = Constraint(
-            expr=(
-                sum(self.num_wells_var[i] for i in self.num_wells_var)
-                == self.select_cluster
-            ),
+            expr=sum(self.num_wells_var[:]) == self.select_cluster,
             doc="Ensures at most one num_wells_var is selected",
         )
 
@@ -376,9 +389,10 @@ class ClusterBlockData(BlockData):
                 doc="Calculates the total plugging cost for the cluster",
             )
             return
+
         beta = param.config.discount_cost_factor
         upc = param.get_plugging_cost
-        if beta == 1:
+        if np.isclose(beta, 1):
             self.calculate_plugging_cost = Constraint(
                 expr=(
                     sum(upc[w] * self.select_well[w] for w in self.set_wells)
@@ -387,6 +401,7 @@ class ClusterBlockData(BlockData):
                 doc="Calculates the total plugging cost for the cluster",
             )
             return
+
         self.adjusted_plugging_cost = Var(
             within=NonNegativeReals,
             doc="Adjusted Total cost of plugging wells using economies of scale",
@@ -399,17 +414,18 @@ class ClusterBlockData(BlockData):
             doc="Calculates the total plugging cost before economies of scale",
         )
         # pylint: disable = not-an-iterable
-        if param.config.min_wells_in_project is None:
-            min_wells = 1
-        else:
-            min_wells = param.config.min_wells_in_project
+        min_wells = (
+            1
+            if param.config.min_wells_in_project is None
+            else param.config.min_wells_in_project
+        )
         bigm_max = upc.loc[well_index].sum()
         beta_min = (min_wells**beta) / min_wells
-        beta_max = (len(self.set_num_wells) ** beta) / len(self.set_num_wells)
+        beta_max = (max(self.set_num_wells) ** beta) / max(self.set_num_wells)
         bigm_common = {i: bigm_max for i in self.set_num_wells}
         bigm_dict = {
             i: bigm_max * max(((i**beta) / i) - beta_max, beta_min - ((i**beta) / i))
-            for i in list(self.set_num_wells)
+            for i in self.set_num_wells
         }
         if param.config.cost_formulation_type in ["standard_bigm", "alternate_bigm"]:
             bigm = (
@@ -441,12 +457,8 @@ class ClusterBlockData(BlockData):
                 doc="Adjusted Total cost of plugging wells using economoies of scale",
             )
             self.calculate_aux_adjusted_plugging_cost = Constraint(
-                expr=(
-                    self.adjusted_plugging_cost
-                    == sum(
-                        self.aux_adjusted_plugging_cost[i] for i in self.num_wells_var
-                    )
-                ),
+                expr=self.adjusted_plugging_cost
+                == sum(self.aux_adjusted_plugging_cost[:]),
                 doc="Calculates the total plugging cost before economies of scale",
             )
 

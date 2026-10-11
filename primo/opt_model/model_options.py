@@ -28,6 +28,7 @@ from pyomo.common.config import (
     PositiveInt,
     document_kwargs_from_configdict,
 )
+import pyomo.environ as pyo
 
 # User-defined libs
 from primo.data_parser.default_data import (
@@ -140,6 +141,30 @@ def model_config() -> ConfigDict:
             default="Max Scaling",
             domain=In(["Max Scaling", "Zone"]),
             doc="Efficiency Formulation",
+        ),
+    )
+    config.declare(
+        "zone_well_based_constraint_type",
+        ConfigValue(
+            default="strong",
+            domain=In(["strong", "weak"]),
+            doc="Well-based constraint type in zone formulation",
+        ),
+    )
+    config.declare(
+        "zone_well_pair_constraint_type",
+        ConfigValue(
+            default="strong",
+            domain=In(["strong", "weak"]),
+            doc="Well-pair constraint type in zone formulation",
+        ),
+    )
+    config.declare(
+        "compute_tighter_var_bounds",
+        ConfigValue(
+            default=False,
+            domain=Bool,
+            doc="If True, computes and uses tighter variable bounds",
         ),
     )
     config.declare(
@@ -574,6 +599,12 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
         self.pairwise_metrics = {c: None for c in self.campaign_candidates}
         self._opt_model = None
         self._solver = None
+
+        self.max_num_wells_plugged = None
+        self.max_usable_budget = None
+        if self.config.compute_tighter_var_bounds:
+            self._compute_bounds_num_wells_var()
+
         LOGGER.info("Finished processing optimization model inputs.")
 
     @property
@@ -826,6 +857,41 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
 
         # In all other cases, return the optimal campaign
         return campaign
+
+    def _compute_bounds_num_wells_var(self):
+        """Computes valid upper bound on num_wells_var and plugging_cost"""
+        # Build an impact only model and solve to determine tighter bounds
+        _user_objective_weight = self.config.objective_weight_impact
+        self.config.objective_weight_impact = 100
+
+        for solver_name in ("gurobi", "highs", "scip"):
+            solver = get_solver(solver=solver_name, mip_gap=0)
+            if solver.available():
+                LOGGER.info(f"Using {solver_name} for computing bounds.")
+                break
+
+        LOGGER.info("Computing maximum number of wells that can be plugged")
+        m = self.build_optimization_model()
+        m.del_component(m.total_priority_score)  # Delete default objective
+        m.num_wells_plugged = pyo.Objective(
+            expr=sum(m.cluster[:].num_wells_chosen), sense=pyo.maximize
+        )
+        solver.solve(m, tee=True)
+        self.max_num_wells_plugged = pyo.value(m.num_wells_plugged)
+        LOGGER.info(
+            f"Budget is sufficient to plug a maximum of {self.max_num_wells_plugged} wells"
+        )
+
+        LOGGER.info("Computing maximum usable budget for plugging")
+        m.del_component(m.num_wells_plugged)
+        m.compute_max_usable_budget = pyo.Objective(
+            expr=sum(m.cluster[:].plugging_cost), sense=pyo.maximize
+        )
+        solver.solve(m, tee=True)
+        self.max_usable_budget = pyo.value(m.compute_max_usable_budget)
+        LOGGER.info(f"Maximum usable budget is {self.max_usable_budget} million USD")
+
+        self.config.objective_weight_impact = _user_objective_weight
 
     def update_cluster(
         self,
