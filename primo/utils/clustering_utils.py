@@ -420,6 +420,58 @@ def perform_louvain_clustering(
     )
 
 
+def get_exhaustive_clusters(
+    wd: WellData,
+    radius: float,
+    max_neighbors: Optional[int] = None,
+) -> Tuple[dict, dict]:
+    """
+    Get the neighboring wells and distances within a given radius around each anchor well,
+    sorted by distance.
+
+    Parameters
+    ----------
+    wd : WellData
+        Object containing well data
+
+    radius : float
+        Threshold distance (in miles) for breaking clusters
+
+    max_neighbors : int, default = None
+        Maximum number of wells to include in each cluster
+
+    Returns
+    -------
+    clusters : Dict[int, List[int]]
+        Dictionary of lists of wells contained in each cluster
+
+    distances : Dict[int, Dict[int, float]]
+        Nested dictionaries containing the distance between two wells in miles
+    """
+
+    coordinates = list(
+        zip(wd.data[wd.col_names.latitude], wd.data[wd.col_names.longitude])
+    )
+    ball_tree, coords_rad = build_ball_tree(coordinates)
+    neighbor_indices, dists = ball_tree.query_radius(
+        coords_rad,
+        r=radius / EARTH_RADIUS,
+        return_distance=True,
+        sort_results=bool(max_neighbors),
+    )
+
+    well_ids = wd.data.index.tolist()
+    clusters, distances = {}, {}
+    for i, well_id in enumerate(well_ids):
+        # Lists are truncated if they exceed the maximum number of neighbor wells
+        idx = neighbor_indices[i][:max_neighbors]
+        dst = dists[i][:max_neighbors] * EARTH_RADIUS
+        clusters[well_id] = [well_ids[j] for j in idx]
+        distances[well_id] = dict(zip(clusters[well_id], dst))
+
+    return clusters, distances
+
+
 def perform_exhaustive_clustering(
     wd: WellData,
     threshold_distance: float,
@@ -449,21 +501,7 @@ def perform_exhaustive_clustering(
         LOGGER.info("Returning existing clusters from cache.")
         return _well_clusters(wd)
 
-    coordinates = list(
-        zip(wd.data[wd.col_names.latitude], wd.data[wd.col_names.longitude])
-    )
-    ball_tree, coords_rad = build_ball_tree(coordinates)
-
-    radius_radians = (threshold_distance / 2) / EARTH_RADIUS
-    neighbors_indices = ball_tree.query_radius(coords_rad, r=radius_radians)
-
-    well_ids = wd.data.index.tolist()
-
-    # Initial clusters
-    clusters = {
-        well_ids[i]: [well_ids[j] for j in neighbors_indices[i]]
-        for i in range(len(well_ids))
-    }
+    clusters, _ = get_exhaustive_clusters(wd, threshold_distance / 2)
 
     max_cluster_size = max(len(neigh) for neigh in clusters.values())
     LOGGER.info(f"Initial clustering completed with {len(clusters)} clusters.")
@@ -476,6 +514,7 @@ def perform_exhaustive_clustering(
         )
         return clusters
 
+    # TODO: There are currently no tests for this return path
     # Sort clusters in descending order of cluster size.
     # If two clusters have the same size, use the center well ID to break ties (ascending).
     sorted_clusters = sorted(clusters.items(), key=lambda x: (-len(x[1]), x[0]))
@@ -491,7 +530,7 @@ def perform_exhaustive_clustering(
     LOGGER.info(f"{len(selected_clusters)} clusters selected using greedy approach.")
 
     # Add more clusters based on impact score of center well
-    n_wells = len(well_ids)
+    n_wells = len(clusters)
     max_total_clusters = (n_wells + len(selected_clusters)) // 2
     additional_clusters_to_add = max_total_clusters - len(selected_clusters)
 
@@ -598,7 +637,7 @@ def perform_boundary_clustering(
 
             if num_wells > max_boundary_cluster_size:
                 LOGGER.warning(
-                    f"Ingnoring the max_boundary_cluster_size for region '{region}' since "
+                    f"Ignoring the max_boundary_cluster_size for region '{region}' since "
                     f"subcluster_method is None."
                 )
 
