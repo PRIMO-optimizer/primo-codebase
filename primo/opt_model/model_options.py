@@ -17,6 +17,7 @@ import logging
 
 # Installed libs
 import numpy as np
+import pyomo.environ as pyo
 from pyomo.common.config import (
     Bool,
     ConfigDict,
@@ -28,7 +29,6 @@ from pyomo.common.config import (
     PositiveInt,
     document_kwargs_from_configdict,
 )
-import pyomo.environ as pyo
 
 # User-defined libs
 from primo.data_parser.default_data import (

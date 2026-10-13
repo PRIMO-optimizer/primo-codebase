@@ -29,20 +29,43 @@ from primo.opt_model.model_with_clustering import PluggingCampaignModel
 
 LOGGER = logging.getLogger(__name__)
 
+EXPECTED_ZONE_CONSTRAINTS = (
+    "eliminate_well_pairs",  # Strong - well pair
+    "acceptable_wells",  # Weak well based
+    "eliminate_wells",  # Weak well based
+    "suppress_wells_rlt_1",  # Weak well pair
+    "suppress_wells_rlt_2",  # Weak well pair
+)
+EXPECTED_ZONE_PAIR_CONSTRAINTS = (
+    "eliminate_wells",  # Weak well based
+    "suppress_wells_rlt_1",  # Weak well pair
+    "suppress_wells_rlt_2",  # Weak well pair
+)
+
 
 class GurobiSolver:
     """Solves the optimization model with Gurobi"""
 
-    def __init__(self, model: PluggingCampaignModel, writer_type: str = "new"):
+    def __init__(
+        self,
+        model: PluggingCampaignModel,
+        writer_type: str = "new",
+        use_indicators: bool = False,
+    ):
         """Creates an instance of the solver object
 
         Parameters
         ----------
         model : PluggingCampaignModel
             Optimization model
+
         writer_type : str, optional
             Type of Gurobi solver writer. Allowed values are
             "old" and "new", by default "new"
+
+        use_indicators : bool, optional
+            If True, builds well-pair constraints in the efficiency model as
+            indicator constraints, by default False
         """
         self.model = model
         self.formulation_type = model.model_inputs.config.efficiency_formulation
@@ -53,7 +76,11 @@ class GurobiSolver:
             self.solver = GurobiPersistent()
             self.solver.config.raise_exception_on_nonoptimal_result = False
 
-        self.solver.set_instance(self.model)
+        if use_indicators and self.formulation_type == "Zone":
+            self._zone_hull_indicator_constraints()
+        else:
+            self.solver.set_instance(self.model)
+
         self.pm_to_gb = self.solver._pyomo_var_to_solver_var_map
         self.solve_result = None
 
@@ -101,6 +128,13 @@ class GurobiSolver:
                 for v in metric.select_zone.values():
                     self.solver.set_var_attr(v, "BranchPriority", zone_vars_priority)
 
+                if hasattr(metric, "select_well_zone"):
+                    if metric.select_well_zone.domain is pyo.Binary:
+                        for v in metric.select_well_zone.values():
+                            self.solver.set_var_attr(
+                                v, "BranchPriority", zone_vars_priority
+                            )
+
         self.solver.update()  # Updates the solver var attributes in solver model
 
     def set_partition_number(self):
@@ -138,15 +172,10 @@ class GurobiSolver:
 
         self.solver.update()
 
-    def make_efficiency_constraints_lazy(self, lazy_level: int = 1):
-        """Makes a few constraints related to efficiency calculations lazy
-
-        Parameters
-        ----------
-        lazy_level : int, optional
-            Degree of "laziness". See Gurobi documentation., by default 1
+    def _get_all_efficiency_model_blocks(self):
         """
-        lazy_metrics = WELL_BASED_METRICS + WELL_PAIR_METRICS
+        Returns a list of pointers to all efficiency blocks present in the model
+        """
         efficiency_blks = []
 
         try:
@@ -159,16 +188,121 @@ class GurobiSolver:
                 "Efficiency calculation constraints are not present in "
                 "the model. No constraint is made lazy."
             )
-            return
 
-        for eff_blk in efficiency_blks:
-            if eff_blk.name.split(".")[-1] not in lazy_metrics:
-                # Do not make constraints in this block lazy
-                continue
+        return efficiency_blks
 
-            if self.formulation_type == "Max Scaling":
+    def make_efficiency_constraints_lazy(self, lazy_level: int = 1):
+        """Makes a few constraints related to efficiency calculations lazy
+
+        Parameters
+        ----------
+        lazy_level : int, optional
+            Degree of "laziness". See Gurobi documentation., by default 1
+        """
+        efficiency_blks = self._get_all_efficiency_model_blocks()
+        lazy_metrics = WELL_BASED_METRICS + WELL_PAIR_METRICS
+
+        if self.formulation_type == "Max Scaling":
+            for eff_blk in efficiency_blks:
+                if eff_blk.split(".")[-1] not in lazy_metrics:
+                    continue
+
                 for constr in eff_blk.calculate_score.values():
                     self.solver.set_linear_constraint_attr(constr, "Lazy", lazy_level)
+
+        elif self.formulation_type == "Zone":
+            for eff_blk in efficiency_blks:
+                for cb in EXPECTED_ZONE_PAIR_CONSTRAINTS:
+                    constr_blk = getattr(eff_blk, cb, None)
+                    if constr_blk is None:
+                        # Constraint type is not present in the block
+                        continue
+
+                    for constr in constr_blk.values():
+                        self.solver.set_linear_constraint_attr(
+                            constr, "Lazy", lazy_level
+                        )
+
+        self.solver.update()
+
+    def _zone_hull_indicator_constraints(self):
+        """Builds efficiency model constraints as indicator constraints"""
+
+        LOGGER.info(
+            "Building efficiency model constraints as indicator-type constraints"
+        )
+        effciency_blks = self._get_all_efficiency_model_blocks()
+
+        # First, we deactivate the relevant constraints, then build the model
+        # without those constraints, and then add them as indicator constraints
+        for blk in effciency_blks:
+            for cn in EXPECTED_ZONE_PAIR_CONSTRAINTS:
+                constr_blk = getattr(blk, cn, None)
+                if constr_blk is not None:
+                    constr_blk.deactivate()
+
+        # Instantiate the model without the above constraints
+        self.solver.set_instance(self.model)
+        gm = self.gurobi_model
+        # pylint: disable = protected-access
+        pg_map = self.solver._pyomo_var_to_solver_var_map
+        pairwise_metrics = self.model.model_inputs.pairwise_metrics
+
+        # Add the indicator constraints to the model
+        for blk in effciency_blks:
+            if hasattr(blk, "eliminate_well_pairs"):
+                # Add the constraints as indicator constraints
+                for z, w1, w2 in blk.eliminate_well_pairs:
+                    gm.addConstr(
+                        (pg_map[blk.select_zone[z]] == 1)
+                        >> (
+                            pg_map[blk.select_well_zone[w1, z]]
+                            + pg_map[blk.select_well_zone[w2, z]]
+                            <= 1
+                        )
+                    )
+
+            if hasattr(blk, "suppress_wells_rlt_1"):
+                zone_matrix = blk.construct_zone_matrix(
+                    pairwise_metrics[blk.cluster_model.index()][
+                        blk.name.split(".")[-1] + "_zones"
+                    ]
+                )
+                # Ensure that select_well_zone variable is binary
+                blk.select_well_zone.domain = pyo.Binary
+                for w, z in blk.select_well_zone:
+                    wells_outside_zone = zone_matrix[zone_matrix[w] > z].index
+                    if len(wells_outside_zone) == 0:
+                        continue
+
+                    gm.addConstr(
+                        (pg_map[blk.select_well_zone[w, z]] == 1)
+                        >> (
+                            sum(
+                                pg_map[blk.select_well_zone[v, z]]
+                                for v in wells_outside_zone
+                            )
+                            == 0
+                        )
+                    )
+
+        # for eff_metric in WELL_BASED_METRICS:
+        #     eff_blk = getattr(blk.efficiency_model, eff_metric, None)
+        #     if eff_blk is None:
+        #         continue
+
+        #     metric_name = eff_blk.name.split(".")[-1]
+        #     zone_wells = blk.efficiency_model.zone_wells[metric_name]
+
+        #     for z in eff_blk.set_zones:
+        #         reject_wells = zone_wells[zone_wells > z].index
+        #         if len(reject_wells) == 0:
+        #             continue
+
+        #         gm.addConstr(
+        #             (pg_map[eff_blk.select_zone[z]] == 1)
+        #             >> (sum(pg_map[blk.select_well[v]] for v in reject_wells) == 0)
+        #         )
 
         self.solver.update()
 
