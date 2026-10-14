@@ -100,6 +100,15 @@ class ZoneFormulationBlockData(BlockData):
             expr=sum(self.select_zone[:]) == cm.select_cluster
         )
 
+        # The following variable helps to set efficiency to zero for well pair
+        # metrics if a single-well project is chosen. It also helps in adjusting
+        # the efficiency scores so that larger projects become attractive.
+        mult_factor = {
+            n: self.parent_block().num_wells_adjustment[n] for n in cm.set_num_wells
+        }
+        if 1 in mult_factor and metric.metric_type == "well_pair":
+            mult_factor[1] = 0
+
         if len(self.set_zones) == 1:
             # No constraint on which wells/well pairs can be selected.
             # So, no need to introduce auxiliary variables in this case
@@ -109,7 +118,10 @@ class ZoneFormulationBlockData(BlockData):
             )
             self.calculate_score = Constraint(
                 expr=self.score
-                == _score * sum(n * cm.num_wells_var[n] for n in cm.set_num_wells)
+                == sum(
+                    mult_factor[n] * _score * n * cm.num_wells_var[n]
+                    for n in cm.set_num_wells
+                )
             )
             return
 
@@ -145,12 +157,6 @@ class ZoneFormulationBlockData(BlockData):
         @self.Constraint(cm.set_num_wells)
         def rlt_num_wells_var_definition(blk, n):
             return cm.num_wells_var[n] == sum(blk.num_wells_var_zone[n, :])
-
-        # The following variable helps to set efficiency to zero for well pair
-        # metrics if a single-well project is chosen
-        mult_factor = {n: 1 for n in cm.set_num_wells}
-        if 1 in mult_factor and metric.metric_type == "well_pair":
-            mult_factor[1] = 0
 
         coeff = metric.zone_data.efficiency
         self.calculate_score = Constraint(

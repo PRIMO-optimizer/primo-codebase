@@ -446,6 +446,9 @@ class PluggingCampaignModel(ConcreteModel):
         """
         Appends objective function to the model
         """
+        for blk in self.cluster.values():
+            blk.construct_impact_score_expression()
+
         total_impact_score = sum(
             self.cluster[c].cluster_impact_score for c in self.set_clusters
         )

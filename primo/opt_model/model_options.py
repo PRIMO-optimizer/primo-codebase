@@ -1021,9 +1021,10 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
 
         # Append the pairwise metrics to the model
         for c in self.campaign_candidates:
-            self.pairwise_metrics[c] = get_pairwise_metrics(
-                wd, self.campaign_candidates[c]
-            )
+            if self.pairwise_metrics[c] is None:
+                self.pairwise_metrics[c] = get_pairwise_metrics(
+                    wd, self.campaign_candidates[c]
+                )
 
         for metric in WELL_PAIR_METRICS:
             if (

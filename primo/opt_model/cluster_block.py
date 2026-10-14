@@ -246,21 +246,6 @@ class ClusterBlockData(BlockData):
             if override_data is None or override_data.override_status is False:
                 self.max_well_violation.fix(0)
 
-        # Useful expressions
-        # Scale the priority score so that the maximum priority score is 100
-        # Keep the lowest priority score at whatever (scaled) nominal value it is
-        priority_score = (
-            wd["Priority Score [0-100]"] * 100 / wd["Priority Score [0-100]"].max()
-        )
-        wt_impact = params.config.objective_weight_impact / 100
-        self.cluster_impact_score = Expression(
-            expr=(
-                wt_impact
-                * sum(priority_score[w] * self.select_well[w] for w in self.set_wells)
-            ),
-            doc="Computes the total priority score for the cluster",
-        )
-
         # Essential constraints
         self.calculate_num_wells_chosen = Constraint(
             expr=(
@@ -475,3 +460,49 @@ class ClusterBlockData(BlockData):
                     model.aux_adjusted_plugging_cost[i] * (i**beta / i)
                     for i in self.set_num_wells
                 )
+
+    def construct_impact_score_expression(self):
+        """
+        Constructs an expression for the total impact score using
+        the auxiliary variables introduced in the zone formulation
+        """
+        # Scale the priority score so that the maximum priority score is 100
+        # Keep the lowest priority score at whatever (scaled) nominal value it is
+        params = self.parent_block().model_inputs.config
+        wd = params.well_data
+        priority_score = (
+            wd["Priority Score [0-100]"] * 100 / wd["Priority Score [0-100]"].max()
+        )
+        wt_impact = params.objective_weight_impact / 100
+
+        if params.efficiency_formulation == "Max Scaling" or np.isclose(wt_impact, 1):
+            self.cluster_impact_score = Expression(
+                expr=sum(
+                    wt_impact * priority_score[w] * self.select_well[w]
+                    for w in self.set_wells
+                ),
+                doc="Computes the total priority score for the cluster",
+            )
+            return
+
+        # Zone formulation
+        @self.Expression(self.set_wells)
+        def aggregated_select_well(blk, w):
+            swv = {}
+            for m in wd.config.efficiency_metrics.selected_metrics:
+                eff_blk = getattr(blk.efficiency_model, m.name)
+                if hasattr(eff_blk, "select_well_zone"):
+                    swv[m.name] = (m.effective_weight / 100) * sum(
+                        eff_blk.select_well_zone[w, :]
+                    )
+                else:
+                    swv[m.name] = (m.effective_weight / 100) * blk.select_well[w]
+
+            return sum(swv.values())
+
+        self.cluster_impact_score = Expression(
+            expr=sum(
+                wt_impact * priority_score[w] * self.aggregated_select_well[w]
+                for w in self.set_wells
+            )
+        )
