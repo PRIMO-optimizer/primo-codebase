@@ -35,7 +35,7 @@ Step 1: Get Source Code
 Installation using a ZIP File
 ``````````````````````````````
 
-To download the ZIP file of PRIMO, visit the PRIMO repository on GitHub, click the "Code" icon, 
+To download the ZIP file of PRIMO, visit the `PRIMO repository on GitHub <https://github.com/PRIMO-optimizer/primo-codebase>`_, click the "Code" icon,
 and select "Download ZIP." 
 Once the download is complete, place the ZIP file in a preferred location and extract all files. After extraction, refer to the
 :ref:`Create the Python Environment <environment>` section for the next step.
@@ -63,8 +63,8 @@ Before proceeding with the installation via GitHub, ensure that the following pr
 
 3. **Clone the Fork**: Clone the fork locally using the following command: ::
 
-        git clone https://github.com/<USERNAME>/primo-optimizer.git
-        cd primo-optimizer
+        git clone https://github.com/<USERNAME>/primo-codebase.git
+        cd primo-codebase
    
   Users should replace the '*<USERNAME>*' with their GitHub username.
 
