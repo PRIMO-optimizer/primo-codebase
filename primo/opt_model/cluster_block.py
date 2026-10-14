@@ -20,7 +20,6 @@ from pyomo.environ import (
     Constraint,
     Expression,
     NonNegativeReals,
-    Param,
     RangeSet,
     Set,
     Var,
@@ -122,7 +121,23 @@ class ClusterBlockData(BlockData):
             initialize=well_index,
             doc="Set of wells in cluster c",
         )
-        self.set_num_wells = RangeSet(len(self.set_wells))
+
+        if params.config.compute_tighter_var_bounds:
+            _min_num_wells = max(filter(None, [1, params.config.min_wells_in_project]))
+            _max_num_wells = min(
+                filter(
+                    None,
+                    [
+                        params.config.max_wells_in_project,
+                        params.max_num_wells_plugged,
+                        len(self.set_wells),
+                    ],
+                )
+            )
+            self.set_num_wells = RangeSet(_min_num_wells, _max_num_wells)
+        else:
+            self.set_num_wells = RangeSet(len(self.set_wells))
+
         self.set_well_pairs_remove = Set(
             dimen=2,
             initialize=well_pairs_remove,
@@ -140,38 +155,10 @@ class ClusterBlockData(BlockData):
             doc="1, if the well is selected for plugging, 0 otherwise",
         )
         self.num_wells_var = Var(
-            range(1, len(self.set_wells) + 1),
+            self.set_num_wells,
             within=Binary,
             doc="Variables to track the total number of wells chosen",
         )
-
-        def num_wells_efficiency_embedding(i, b):
-            """
-            Computes coefficients for efficiency score in the objective function
-
-            Parameters
-            ----------
-            i : int
-                The number of wells in a project
-            b : float
-                A parameter that adjusts the coefficient based on the number of wells
-
-            Returns
-            -------
-            float
-                The coefficient for efficiency score in the objective. Returns 1 if b is zero.
-            """
-            if abs(b) <= 1e-6:
-                return 1
-            return np.log10(b * i) + 1
-
-        self.num_wells_adjustment = Param(
-            range(1, len(self.set_wells) + 1),
-            initialize=lambda i: num_wells_efficiency_embedding(
-                i, params.config.embedding_b
-            ),
-        )
-
         self.plugging_cost = Var(
             within=NonNegativeReals,
             doc="Total cost for plugging wells in this cluster",
@@ -259,21 +246,6 @@ class ClusterBlockData(BlockData):
             if override_data is None or override_data.override_status is False:
                 self.max_well_violation.fix(0)
 
-        # Useful expressions
-        # Scale the priority score so that the maximum priority score is 100
-        # Keep the lowest priority score at whatever (scaled) nominal value it is
-        priority_score = (
-            wd["Priority Score [0-100]"] * 100 / wd["Priority Score [0-100]"].max()
-        )
-        wt_impact = params.config.objective_weight_impact / 100
-        self.cluster_impact_score = Expression(
-            expr=(
-                wt_impact
-                * sum(priority_score[w] * self.select_well[w] for w in self.set_wells)
-            ),
-            doc="Computes the total priority score for the cluster",
-        )
-
         # Essential constraints
         self.calculate_num_wells_chosen = Constraint(
             expr=(
@@ -294,10 +266,7 @@ class ClusterBlockData(BlockData):
             doc="Determines the number of wells chosen",
         )
         self.num_well_uniqueness = Constraint(
-            expr=(
-                sum(self.num_wells_var[i] for i in self.num_wells_var)
-                == self.select_cluster
-            ),
+            expr=sum(self.num_wells_var[:]) == self.select_cluster,
             doc="Ensures at most one num_wells_var is selected",
         )
 
@@ -405,9 +374,10 @@ class ClusterBlockData(BlockData):
                 doc="Calculates the total plugging cost for the cluster",
             )
             return
+
         beta = param.config.discount_cost_factor
         upc = param.get_plugging_cost
-        if beta == 1:
+        if np.isclose(beta, 1):
             self.calculate_plugging_cost = Constraint(
                 expr=(
                     sum(upc[w] * self.select_well[w] for w in self.set_wells)
@@ -416,6 +386,7 @@ class ClusterBlockData(BlockData):
                 doc="Calculates the total plugging cost for the cluster",
             )
             return
+
         self.adjusted_plugging_cost = Var(
             within=NonNegativeReals,
             doc="Adjusted Total cost of plugging wells using economies of scale",
@@ -428,17 +399,18 @@ class ClusterBlockData(BlockData):
             doc="Calculates the total plugging cost before economies of scale",
         )
         # pylint: disable = not-an-iterable
-        if param.config.min_wells_in_project is None:
-            min_wells = 1
-        else:
-            min_wells = param.config.min_wells_in_project
+        min_wells = (
+            1
+            if param.config.min_wells_in_project is None
+            else param.config.min_wells_in_project
+        )
         bigm_max = upc.loc[well_index].sum()
         beta_min = (min_wells**beta) / min_wells
-        beta_max = (len(self.set_num_wells) ** beta) / len(self.set_num_wells)
+        beta_max = (max(self.set_num_wells) ** beta) / max(self.set_num_wells)
         bigm_common = {i: bigm_max for i in self.set_num_wells}
         bigm_dict = {
             i: bigm_max * max(((i**beta) / i) - beta_max, beta_min - ((i**beta) / i))
-            for i in list(self.set_num_wells)
+            for i in self.set_num_wells
         }
         if param.config.cost_formulation_type in ["standard_bigm", "alternate_bigm"]:
             bigm = (
@@ -470,12 +442,8 @@ class ClusterBlockData(BlockData):
                 doc="Adjusted Total cost of plugging wells using economoies of scale",
             )
             self.calculate_aux_adjusted_plugging_cost = Constraint(
-                expr=(
-                    self.adjusted_plugging_cost
-                    == sum(
-                        self.aux_adjusted_plugging_cost[i] for i in self.num_wells_var
-                    )
-                ),
+                expr=self.adjusted_plugging_cost
+                == sum(self.aux_adjusted_plugging_cost[:]),
                 doc="Calculates the total plugging cost before economies of scale",
             )
 
@@ -492,3 +460,49 @@ class ClusterBlockData(BlockData):
                     model.aux_adjusted_plugging_cost[i] * (i**beta / i)
                     for i in self.set_num_wells
                 )
+
+    def construct_impact_score_expression(self):
+        """
+        Constructs an expression for the total impact score using
+        the auxiliary variables introduced in the zone formulation
+        """
+        # Scale the priority score so that the maximum priority score is 100
+        # Keep the lowest priority score at whatever (scaled) nominal value it is
+        params = self.parent_block().model_inputs.config
+        wd = params.well_data
+        priority_score = (
+            wd["Priority Score [0-100]"] * 100 / wd["Priority Score [0-100]"].max()
+        )
+        wt_impact = params.objective_weight_impact / 100
+
+        if params.efficiency_formulation == "Max Scaling" or np.isclose(wt_impact, 1):
+            self.cluster_impact_score = Expression(
+                expr=sum(
+                    wt_impact * priority_score[w] * self.select_well[w]
+                    for w in self.set_wells
+                ),
+                doc="Computes the total priority score for the cluster",
+            )
+            return
+
+        # Zone formulation
+        @self.Expression(self.set_wells)
+        def aggregated_select_well(blk, w):
+            swv = {}
+            for m in wd.config.efficiency_metrics.selected_metrics:
+                eff_blk = getattr(blk.efficiency_model, m.name)
+                if hasattr(eff_blk, "select_well_zone"):
+                    swv[m.name] = (m.effective_weight / 100) * sum(
+                        eff_blk.select_well_zone[w, :]
+                    )
+                else:
+                    swv[m.name] = (m.effective_weight / 100) * blk.select_well[w]
+
+            return sum(swv.values())
+
+        self.cluster_impact_score = Expression(
+            expr=sum(
+                wt_impact * priority_score[w] * self.aggregated_select_well[w]
+                for w in self.set_wells
+            )
+        )
