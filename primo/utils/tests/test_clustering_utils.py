@@ -777,12 +777,12 @@ DEFAULT_CONFIG = {
         (
             "target",
             {"max_iter": 1, "target_clusters": 1, "max_wells_in_project": 20},
-            None,
+            RuntimeError,
         ),
         (
             "center",
             {"min_wells_in_project": 35, "max_wells_in_project": 25, "budget": 13e6},
-            None,
+            ValueError,
         ),
     ],
 )
@@ -795,7 +795,7 @@ def test_perform_heuristic_constrained_clustering(
     config = {**DEFAULT_CONFIG, **config_override}
     wd = make_well_data(tail=None, cost_of_plugging=50000)
 
-    if result is not None:
+    if isinstance(result, int):
         opt_model_inputs = OptModelInputs(
             well_data=wd,
             total_budget=config["budget"],
@@ -814,7 +814,7 @@ def test_perform_heuristic_constrained_clustering(
         assert len(clusters) == result
 
     else:
-        with pytest.raises(RuntimeError):
+        with pytest.raises(result):
             opt_model_inputs = OptModelInputs(
                 well_data=wd,
                 total_budget=config["budget"],
