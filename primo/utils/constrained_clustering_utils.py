@@ -424,10 +424,11 @@ def perform_heuristic_constrained_clustering(
         )
 
         if not valid_budget and not state["valid_min_constraints"]:
-            raise_exception(
+            return _finish_search(
+                wd,
+                state["last_valid_cluster"],
                 "Could not find a valid clustering that satisfies all constraints. "
                 "Please relax the constraints and try again.",
-                RuntimeError,
             )
 
         if valid_clustering:
