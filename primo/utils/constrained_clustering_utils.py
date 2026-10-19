@@ -374,6 +374,14 @@ def perform_heuristic_constrained_clustering(
     )
 
     wd = model_options.config.well_data
+
+    # Check that the initial number of clusters is feasible
+    if not 1 <= n_clusters <= len(wd.data):
+        n_clusters = min(max(n_clusters, 1), len(wd.data))
+        LOGGER.info(
+            "The initial number of clusters is outside the feasible range."
+            f" Adjusted to {n_clusters}.")
+
     state = {
         "iteration": 0,
         "valid_min_constraints": True,
@@ -442,7 +450,12 @@ def perform_heuristic_constrained_clustering(
             n_clusters, valid_budget, state["valid_min_constraints"], objective
         )
 
-        if n_clusters in state["tried"] or n_clusters == 0:
+        # KMeansConstrained raises an error if there are zero clusters or more clusters than wells
+        if (
+            n_clusters in state["tried"]
+            or n_clusters == 0
+            or n_clusters > len(wd.data)
+        ):
             if state["last_valid_cluster"] is not None:
                 LOGGER.info(
                     "Solution found, returning the last valid cluster configuration."
