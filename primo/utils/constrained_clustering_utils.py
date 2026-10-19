@@ -336,6 +336,7 @@ def _finish_search(
     raise_exception(failure_message, RuntimeError)
 
 
+# pylint: disable=too-many-locals
 def perform_heuristic_constrained_clustering(
     model_options: OptModelInputs,
     objective: str = "center",
@@ -380,7 +381,14 @@ def perform_heuristic_constrained_clustering(
         n_clusters = min(max(n_clusters, 1), len(wd.data))
         LOGGER.info(
             "The initial number of clusters is outside the feasible range."
-            f" Adjusted to {n_clusters}.")
+            f" Adjusted to {n_clusters}."
+        )
+
+    # Flag to stop an upward search when there is no upper bound on the number of clusters
+    max_clusters_unconstrained = (
+        model_options.config.min_cost_project is None
+        and model_options.config.min_wells_in_project is None
+    )
 
     state = {
         "iteration": 0,
@@ -432,7 +440,15 @@ def perform_heuristic_constrained_clustering(
             )
 
         if valid_clustering:
-            if objective in ["center", "target"]:
+            if (
+                objective in ["center", "target"]
+                # Stop search for unbounded cases
+                or (objective == "maximum" and max_clusters_unconstrained)
+                or (
+                    objective == "minimum"
+                    and budget_sufficient_case(_well_clusters(wd), model_options)
+                )
+            ):
                 # For these cases we want to find the first valid clustering
                 return _well_clusters(wd)
             if objective in ["maximum", "minimum"]:
@@ -452,11 +468,7 @@ def perform_heuristic_constrained_clustering(
         )
 
         # KMeansConstrained raises an error if there are zero clusters or more clusters than wells
-        if (
-            n_clusters in state["tried"]
-            or n_clusters == 0
-            or n_clusters > len(wd.data)
-        ):
+        if n_clusters in state["tried"] or n_clusters == 0 or n_clusters > len(wd.data):
             if state["last_valid_cluster"] is not None:
                 LOGGER.info(
                     "Solution found, returning the last valid cluster configuration."
@@ -576,8 +588,6 @@ def min_project_cost_to_num_wells_cost_of_plugging(
             ub = i + 1
             break
 
-    # TODO: try finding a lower bound and starting from the middle to decrease iterations
-
     return ub
 
 
@@ -648,6 +658,10 @@ def can_spend_full_budget(clusters: dict, model_options: OptModelInputs) -> bool
             ValueError,
         )
 
+    # budget sufficient case - the entire budget can't be spent anyway
+    if budget_sufficient_case(clusters, model_options):
+        return True
+
     # the number of wells in each cluster
     wells_per_cluster = {}
     for cluster, wells in clusters.items():
@@ -655,7 +669,6 @@ def can_spend_full_budget(clusters: dict, model_options: OptModelInputs) -> bool
 
     # make sure the full budget is available to spend
     total_max_cost = 0
-    total_actual_cost = 0
     for cluster, count in wells_per_cluster.items():
         max_cost_list = []
 
@@ -681,24 +694,48 @@ def can_spend_full_budget(clusters: dict, model_options: OptModelInputs) -> bool
         # max cost enforced by the actual number of wells in the cluster
         if config.mobilization_cost is not None:
             max_cost_list.append(config.mobilization_cost[count])
-            total_actual_cost += config.mobilization_cost[count]
         else:
             plugging_costs = wd.data[wd.data[wd.col_names.cluster] == cluster][
                 wd.col_names.cost_of_plugging
             ]
             max_cost_list.append(plugging_costs.sum())
-            total_actual_cost += plugging_costs.sum()
 
         total_max_cost += min(max_cost_list)
-
-    # budget sufficient case - the entire budget can't be spent anyway
-    if total_actual_cost <= config.total_budget:
-        return True
 
     if total_max_cost < config.total_budget:
         return False
 
     return True
+
+
+def budget_sufficient_case(clusters: dict, model_options: OptModelInputs) -> bool:
+    """
+    Checks if there is sufficient budget to plug all wells for the given clustering.
+
+    Parameters
+    ----------
+    clusters : dict
+        A dictionary mapping cluster IDs to lists of wells in each cluster
+    model_options : OptModelInputs
+        The optimization model options
+
+    Returns
+    -------
+    bool
+        True if all wells can be plugged given the budget, False otherwise
+    """
+    wd = model_options.config.well_data
+    config = model_options.config
+
+    if config.mobilization_cost is not None:
+        # this depends on the specific clustering
+        total_cost = sum(
+            config.mobilization_cost[len(wells)] for wells in clusters.values()
+        )
+    else:
+        total_cost = wd.data[wd.col_names.cost_of_plugging].sum()
+
+    return total_cost <= config.total_budget
 
 
 def are_minimum_constraints_satisfied(
