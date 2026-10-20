@@ -386,6 +386,69 @@ def test_opt_model_inputs(get_column_names, cluster_method, num_projects):
     assert opt_mdl.cluster[1].max_well_violation.value == pytest.approx(0, rel=1e-4)
 
 
+DEFAULT_CONSTRAINTS = {
+    "min_size": None,
+    "max_size": None,
+    "min_cost": None,
+    "max_cost": None,
+}
+
+
+@pytest.mark.parametrize(
+    "project_constraints, error_message",
+    [
+        (
+            {"max_size": 0},
+            "Maximum project size and cost must be greater than zero or None.",
+        ),
+        (
+            {"max_cost": 0},
+            "Maximum project size and cost must be greater than zero or None.",
+        ),
+        (
+            {"min_size": 10, "max_size": 5},
+            "Minimum project size cannot be greater than maximum project size.",
+        ),
+        (
+            {"min_cost": 2e6, "max_cost": 1e6},
+            "Minimum project cost cannot be greater than maximum project cost.",
+        ),
+    ],
+)
+def test_validate_project_constraints(
+    get_column_names, project_constraints, error_message
+):
+    """
+    Test that errors are raised for invalid constraints.
+    """
+    im_metrics, col_names, filename = get_column_names
+
+    # Create the well data object
+    wd = WellData(data=filename, column_names=col_names, impact_metrics=im_metrics)
+
+    # Mobilization cost
+    mobilization_cost = {1: 120000, 2: 210000, 3: 280000, 4: 350000}
+    for n_wells in range(5, len(wd) + 1):
+        mobilization_cost[n_wells] = n_wells * 84000
+
+    wd.compute_priority_scores()
+
+    project_constraints = {**DEFAULT_CONSTRAINTS, **project_constraints}
+
+    with pytest.raises(ValueError, match=error_message):
+        OptModelInputs(
+            well_data=wd,
+            total_budget=3250000,  # 3.25 million USD
+            mobilization_cost=mobilization_cost,
+            max_wells_per_owner=1,
+            min_wells_in_project=project_constraints.get("min_size"),
+            max_wells_in_project=project_constraints.get("max_size"),
+            min_cost_project=project_constraints.get("min_cost"),
+            max_cost_project=project_constraints.get("max_cost"),
+            objective_weight_impact=100,
+        )
+
+
 def test_unused_budget_variable_scaling(get_column_names):
     """
     Test the optimization model when there is enough budget for plugging all wells.

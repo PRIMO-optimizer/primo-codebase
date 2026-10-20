@@ -539,6 +539,12 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
                 LOGGER.info(
                     "Clustering wells using the heuristic constrained clustering method."
                 )
+                if self.check_sufficient_budget:
+                    LOGGER.warning(
+                        "The budget is sufficient to plug all wells. "
+                        "Constrained heuristic clustering is designed for budget insufficient "
+                        "cases, consider using a different clustering method."
+                    )
                 self.campaign_candidates = perform_heuristic_constrained_clustering(
                     model_options=self,
                     objective=self.config.constrained_clustering_objective,
