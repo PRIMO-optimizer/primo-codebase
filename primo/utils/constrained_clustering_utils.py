@@ -62,14 +62,6 @@ def _estimate_min_clusters(model_options: OptModelInputs) -> int:
         )
         return min_clusters
 
-    if _single_project_cost(model_options) <= config.total_budget:
-        min_clusters = ceil(len(wd.data) / _MAX_CLUSTER_SIZE_TARGET)
-        LOGGER.info(
-            "The total budget is sufficient to plug all wells in a single project. "
-            f"Using {min_clusters} as default."
-        )
-        return min_clusters
-
     average_well_cost = (
         wd.data[wd.col_names.cost_of_plugging].mean()
         if wd.col_names.cost_of_plugging is not None
@@ -84,28 +76,6 @@ def _estimate_min_clusters(model_options: OptModelInputs) -> int:
     min_clusters = ceil(config.total_budget / enforced_max_cost_per_project)
     LOGGER.info(f"Minimum number of clusters estimated to be {min_clusters}.")
     return min_clusters
-
-
-def _single_project_cost(model_options: OptModelInputs) -> float:
-    """
-    Calculate the cost of all wells if in a single project.
-    This is used to determine the search direction when the full budget can't be spent.
-
-    Parameters
-    ----------
-    model_options : OptModelInputs
-        Object containing the optimization model options
-
-    Returns
-    -------
-    float
-        Cost of a single project
-    """
-    wd = model_options.config.well_data
-
-    if model_options.config.mobilization_cost is not None:
-        return model_options.config.mobilization_cost[len(wd.data)]
-    return wd.data[wd.col_names.cost_of_plugging].sum()
 
 
 def _estimate_min_project_size(model_options: OptModelInputs) -> int:
@@ -304,11 +274,7 @@ def _run_clustering_iteration(
 
 
 def _advance_n_clusters(
-    n_clusters: int,
-    valid_budget: bool,
-    single_project_budget_sufficient: bool,
-    valid_min_constraints: bool,
-    objective: str,
+    n_clusters: int, valid_budget: bool, valid_min_constraints: bool, objective: str
 ) -> int:
     """
     Decide the next candidate number of clusters to try, based on which
@@ -320,8 +286,6 @@ def _advance_n_clusters(
         Number of clusters used in the current attempt
     valid_budget : bool
         Whether the current attempt satisfies the budget constraint
-    single_project_budget_sufficient : bool
-        Whether the budget is sufficient to plug all wells in a single project
     valid_min_constraints : bool
         Whether the current attempt satisfies the minimum-size constraints
     objective : str
@@ -333,7 +297,7 @@ def _advance_n_clusters(
         Number of clusters to try next
     """
     if not valid_budget:
-        return n_clusters - 1 if single_project_budget_sufficient else n_clusters + 1
+        return n_clusters + 1
     if not valid_min_constraints:
         return n_clusters - 1
     if objective == "maximum":
@@ -426,10 +390,6 @@ def perform_heuristic_constrained_clustering(
         and model_options.config.min_wells_in_project is None
     )
 
-    single_project_budget_sufficient = (
-        _single_project_cost(model_options) <= model_options.config.total_budget
-    )
-
     state = {
         "iteration": 0,
         "valid_min_constraints": True,
@@ -504,11 +464,7 @@ def perform_heuristic_constrained_clustering(
         # Continue to the next iteration
         state["tried"].append(n_clusters)
         n_clusters = _advance_n_clusters(
-            n_clusters,
-            valid_budget,
-            single_project_budget_sufficient,
-            state["valid_min_constraints"],
-            objective,
+            n_clusters, valid_budget, state["valid_min_constraints"], objective
         )
 
         # KMeansConstrained raises an error if there are zero clusters or more clusters than wells
