@@ -146,7 +146,7 @@ class PluggingCampaignModel(ConcreteModel):
                 if w in self.cluster[c].set_wells
             )
 
-        if model_inputs.config.cluster_method == "Exhaustive":
+        if model_inputs.has_overlapping_clusters:
 
             @self.Constraint(self.set_clusters)
             def anchor_well_constraint(self, c):
@@ -179,7 +179,7 @@ class PluggingCampaignModel(ConcreteModel):
 
         # Add variables and constraints related to override re-optimization only
         if self.override_data and self.override_data.override_status:
-            if model_inputs.config.cluster_method == "Exhaustive":
+            if model_inputs.has_overlapping_clusters:
                 self.add_well_pair_constraint()
                 self.add_well_preserve_constraint()
                 self.fix_var()
@@ -367,7 +367,7 @@ class PluggingCampaignModel(ConcreteModel):
 
         # Under Exhaustive clustering, update well_fix_dict to only fix wells that are removed
         # or removed from their original cluster and not in unfix_cluster_list
-        if self.model_inputs.config.cluster_method == "Exhaustive":
+        if self.model_inputs.has_overlapping_clusters:
             # A list of qualified clusters from Step 3-2-2 of update_cluster_exhaustive
             unfix_cluster_list = set(self.model_inputs.unfix_cluster_list or [])
             well_fix_dict = {

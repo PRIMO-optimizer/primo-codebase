@@ -52,10 +52,19 @@ from primo.utils.constrained_clustering_utils import (
     perform_heuristic_constrained_clustering,
 )
 from primo.utils.domain_validators import InRange, validate_mobilization_cost
+from primo.utils.mip_clustering_utils import (
+    MIPNonOverlappingClustering,
+    MIPOverlappingClustering,
+)
 from primo.utils.raise_exception import raise_exception
 from primo.utils.solvers import get_solver
 
 LOGGER = logging.getLogger(__name__)
+
+MIP_CLUSTERING = {
+    "MIP_NonOverlapping": MIPNonOverlappingClustering,
+    "MIP_Overlapping": MIPOverlappingClustering,
+}
 
 
 def model_config() -> ConfigDict:
@@ -223,6 +232,8 @@ def model_config() -> ConfigDict:
                     "Exhaustive",
                     "Boundary",
                     "Constrained_Heuristic",
+                    "MIP_NonOverlapping",
+                    "MIP_Overlapping",
                 ]
             ),
             doc="Method used for clustering the wells",
@@ -249,7 +260,7 @@ def model_config() -> ConfigDict:
         ConfigValue(
             default=300,
             domain=NonNegativeInt,
-            doc="Maximum size of clusters for Louvain clustering",
+            doc="Maximum size of clusters for Louvain/MIP clustering",
         ),
     )
     config.declare(
@@ -292,6 +303,7 @@ def model_config() -> ConfigDict:
     )
 
     # Parameters for heuristic constrained clustering
+
     config.declare(
         "constrained_clustering_objective",
         ConfigValue(
@@ -305,7 +317,7 @@ def model_config() -> ConfigDict:
         ConfigValue(
             default=None,
             domain=PositiveInt,
-            doc="Target number of clusters for heuristic constrained clustering",
+            doc="Target number of clusters for heuristic and MIP constrained clustering",
         ),
     )
     config.declare(
@@ -321,7 +333,40 @@ def model_config() -> ConfigDict:
         ConfigValue(
             default=10,
             domain=NonNegativeInt,
-            doc="Maximum number of iterations for heuristic constrained clustering",
+            doc="Maximum number of iterations for heuristic and MIP constrained clustering",
+        ),
+    )
+
+    # Parameters for MIP constrained clustering
+    config.declare(
+        "mip_clustering_objective",
+        ConfigValue(
+            default="cluster_radius",
+            domain=In(["cluster_radius", "num_clusters", "cluster_size"]),
+            doc="""Objective for MIP constrained clustering. To minimize the variation in the
+            clusters' geographic area select cluster_radius. To minimize the number
+            of clusters select num_clusters. To minimize the variation in the number of wells per
+            cluster select cluster_size.""",
+        ),
+    )
+    config.declare(
+        "threshold_distance_increment",
+        ConfigValue(
+            default=2.5,
+            domain=InRange(1, 1000),
+            doc="Increment for increasing threshold distance in MIP constrained clustering",
+        ),
+    )
+    config.declare(
+        "mip_clustering_solver_options",
+        ConfigValue(
+            default={
+                "Method": 2,
+                "TimeLimit": 10000,
+                "solver_name": "gurobi_persistent",
+            },
+            domain=dict,
+            doc="Additional Gurobi/solver options for solving MIP clustering models",
         ),
     )
 
@@ -494,6 +539,7 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
                 ):
                     self._compute_record_incompleteness(wd)
 
+        self.has_overlapping_clusters = False
         if cluster_mapping is None:
             LOGGER.info("Clustering Data in OptModelInputs")
             # Construct campaign candidates
@@ -511,6 +557,7 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
                 self.campaign_candidates = perform_exhaustive_clustering(
                     wd, threshold_distance=self.config.threshold_distance
                 )
+                self.has_overlapping_clusters = True
                 self.unfix_cluster_list = []
             elif self.config.cluster_method == "Louvain":
                 LOGGER.info("Clustering wells using the Louvain clustering method.")
@@ -543,19 +590,49 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
                     max_iterations=self.config.constrained_clustering_max_iterations,
                     target_clusters=self.config.target_number_of_clusters,
                 )
+            elif self.config.cluster_method in MIP_CLUSTERING:
+                LOGGER.info(
+                    f"Clustering wells using the {self.config.cluster_method} clustering method."
+                )
+                cluster_model = MIP_CLUSTERING[self.config.cluster_method](
+                    wd=wd,
+                    min_num_wells=self.config.min_wells_in_project,
+                    max_num_wells=self.config.threshold_cluster_size,
+                    max_num_wells_in_project=self.config.max_wells_in_project,
+                    min_project_cost=self.config.min_cost_project,
+                    max_project_cost=self.config.max_cost_project,
+                    total_budget=self.config.total_budget,
+                    mobilization_cost=mobilization_cost,
+                )
+                cluster_model.objective_type = self.config.mip_clustering_objective
+
+                clusters, td = cluster_model.find_threshold_distance(
+                    start_value=self.config.threshold_distance / 2,
+                    increment=self.config.threshold_distance_increment,
+                    max_iterations=self.config.constrained_clustering_max_iterations,
+                    num_clusters=self.config.target_number_of_clusters,
+                    **self.config.mip_clustering_solver_options,  # Gurobi options
+                )
+                self.campaign_candidates = clusters
+
+                # if the TD needs to be relaxed update the config and warn the user
+                if td * 2 != self.config.threshold_distance:
+                    LOGGER.warning(
+                        f"A threshold distance of {self.config.threshold_distance} is infeasible "
+                        f"for constrained clustering, relaxing to {td * 2}"
+                    )
+                    self.config.threshold_distance = td * 2
+
+                if self.config.cluster_method == "MIP_Overlapping":
+                    self.has_overlapping_clusters = True
+                    self.unfix_cluster_list = []
+                else:
+                    self.add_cluster_mapping_to_well_data()
 
         else:
             LOGGER.info("Skipping clustering step in OptModelInputs")
             self.campaign_candidates = cluster_mapping
-            well_cluster_map = {index: "" for index in wd}
-            for cluster, wells in self.campaign_candidates.items():
-                for well in wells:
-                    well_cluster_map[well] = cluster
-
-            assert "" not in well_cluster_map.values()
-            wd.add_new_column_ordered(
-                "cluster", "Clusters", list(well_cluster_map.values())
-            )
+            self.add_cluster_mapping_to_well_data()
 
         # Construct owner well count data
         col_names = wd.column_names
@@ -575,6 +652,18 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
         self._opt_model = None
         self._solver = None
         LOGGER.info("Finished processing optimization model inputs.")
+
+    def add_cluster_mapping_to_well_data(self):
+        """Adds a column to well data containing the cluster each well belongs to."""
+        well_cluster_map = {index: "" for index in self.config.well_data}
+        for cluster, wells in self.campaign_candidates.items():
+            for well in wells:
+                well_cluster_map[well] = cluster
+
+        assert "" not in well_cluster_map.values()
+        self.config.well_data.add_new_column_ordered(
+            "cluster", "Clusters", list(well_cluster_map.values())
+        )
 
     @property
     def get_total_budget(self):
@@ -782,7 +871,7 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
             len(proj.well_data.data) for proj in project.values()
         )
 
-        if self.config.cluster_method == "Exhaustive":
+        if self.has_overlapping_clusters:
             if self._opt_model.override_data:
                 cluster_col = getattr(self.config.well_data.col_names, "cluster", None)
                 if cluster_col:
@@ -848,7 +937,7 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
         col_names = wd.column_names
 
         # Update the clusters when Exhaustive clustering is used
-        if self.config.cluster_method == "Exhaustive":
+        if self.has_overlapping_clusters:
             self.update_cluster_exhaustive(
                 existing_clusters, new_clusters, lock_widget_return
             )
