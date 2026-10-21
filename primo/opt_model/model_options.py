@@ -539,7 +539,11 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
                 ):
                     self._compute_record_incompleteness(wd)
 
+        # Raise an error if there are contradictory project size constraints
+        self.validate_project_constraints()
+
         self.has_overlapping_clusters = False
+
         if cluster_mapping is None:
             LOGGER.info("Clustering Data in OptModelInputs")
             # Construct campaign candidates
@@ -583,6 +587,13 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
                 LOGGER.info(
                     "Clustering wells using the heuristic constrained clustering method."
                 )
+                if self.check_sufficient_budget:
+                    LOGGER.warning(
+                        "The budget is sufficient to plug all wells. "
+                        "Constrained heuristic clustering is designed for budget insufficient "
+                        "cases, consider using a different clustering method "
+                        "(Agglomerative, Louvain, Exhaustive)."
+                    )
                 self.campaign_candidates = perform_heuristic_constrained_clustering(
                     model_options=self,
                     objective=self.config.constrained_clustering_objective,
@@ -773,6 +784,41 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
     def solver(self):
         """Returns the solver object"""
         return self._solver
+
+    def validate_project_constraints(self):
+        """
+        Checks constraints related to minimum and maximum projects sizes and costs
+        to rule out infeasible scenarios before solving the optimization model.
+        """
+        max_project_size = self.config.max_wells_in_project
+        min_project_size = self.config.min_wells_in_project
+        max_project_cost = self.config.max_cost_project
+        min_project_cost = self.config.min_cost_project
+
+        # maximum project size and cost aren't zero
+        if max_project_size == 0 or max_project_cost == 0:
+            raise_exception(
+                "Maximum project size and cost must be greater than zero or None.",
+                ValueError,
+            )
+
+        # minimum and maximum project size don't overlap
+        if min_project_size is not None and max_project_size is not None:
+            if min_project_size > max_project_size:
+                raise_exception(
+                    "Minimum project size cannot be greater than maximum project size.",
+                    ValueError,
+                )
+
+        # minimum and maximum project cost don't overlap
+        if min_project_cost is not None and max_project_cost is not None:
+            if min_project_cost > max_project_cost:
+                raise_exception(
+                    "Minimum project cost cannot be greater than maximum project cost.",
+                    ValueError,
+                )
+
+        # TODO: preliminary checks converting cost to number of wells
 
     def build_optimization_model(self, override_data=None):
         """Builds the optimization model"""
