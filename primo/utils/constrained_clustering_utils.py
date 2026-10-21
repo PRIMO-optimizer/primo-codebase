@@ -486,7 +486,7 @@ def perform_heuristic_constrained_clustering(
 def get_enforced_max_cost_per_project(
     maximum_cost_per_project: Optional[float],
     maximum_wells_per_project: Optional[int],
-    mobilization_cost: Optional[dict],
+    mobilization_cost: Optional[dict[int, float]],
     average_cost_per_well: Optional[float] = None,
 ) -> float:
     """
@@ -503,7 +503,7 @@ def get_enforced_max_cost_per_project(
     maximum_wells_per_project : Optional[int]
         Maximum number of wells
 
-    mobilization_cost : Optional[dict]
+    mobilization_cost : Optional[dict[int, float]]
         Dictionary mapping number of wells to total cost
 
     average_cost_per_well : Optional[float]
@@ -594,7 +594,7 @@ def min_project_cost_to_num_wells_cost_of_plugging(
 # pylint: disable=inconsistent-return-statements
 def min_project_cost_to_num_wells_mobilization_cost(
     min_project_cost: float,
-    mobilization_cost: dict,
+    mobilization_cost: dict[int, float],
 ) -> int:
     """
     This function finds the minimum number of wells required to meet the minimum project cost
@@ -606,7 +606,7 @@ def min_project_cost_to_num_wells_mobilization_cost(
     min_project_cost : float
         Minimum cost per project
 
-    mobilization_cost : dict
+    mobilization_cost : dict[int, float]
         Dictionary mapping number of wells to total cost
 
     Returns
@@ -627,13 +627,15 @@ def min_project_cost_to_num_wells_mobilization_cost(
     )
 
 
-def can_spend_full_budget(clusters: dict, model_options: OptModelInputs) -> bool:
+def can_spend_full_budget(
+    clusters: dict[int, list[int]], model_options: OptModelInputs
+) -> bool:
     """
     Checks if the given clusters satisfy the constraints specified in model_options.
 
     Parameters
     ----------
-    clusters : dict
+    clusters : dict[int, list[int]]
         A dictionary mapping cluster IDs to lists of wells in each cluster
     model_options : OptModelInputs
         The optimization model options
@@ -708,13 +710,15 @@ def can_spend_full_budget(clusters: dict, model_options: OptModelInputs) -> bool
     return True
 
 
-def budget_sufficient_case(clusters: dict, model_options: OptModelInputs) -> bool:
+def budget_sufficient_case(
+    clusters: dict[int, list[int]], model_options: OptModelInputs
+) -> bool:
     """
     Checks if there is sufficient budget to plug all wells for the given clustering.
 
     Parameters
     ----------
-    clusters : dict
+    clusters : dict[int, list[int]]
         A dictionary mapping cluster IDs to lists of wells in each cluster
     model_options : OptModelInputs
         The optimization model options
@@ -739,14 +743,14 @@ def budget_sufficient_case(clusters: dict, model_options: OptModelInputs) -> boo
 
 
 def are_minimum_constraints_satisfied(
-    clusters: dict, model_options: OptModelInputs
+    clusters: dict[int, list[int]], model_options: OptModelInputs
 ) -> bool:
     """
     Checks if the given clusters satisfy the constraints specified in model_options.
 
     Parameters
     ----------
-    clusters : dict
+    clusters : dict[int, list[int]]
         A dictionary mapping cluster IDs to lists of wells in each cluster
     model_options : OptModelInputs
         The optimization model options
