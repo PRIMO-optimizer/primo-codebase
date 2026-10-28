@@ -24,12 +24,14 @@ from primo import OptModelInputs
 from primo.data_parser import WellDataColumnNames
 from primo.data_parser.well_data import WellData
 from primo.utils.constrained_clustering_utils import (
+    _cap_max_cluster_size,
     _estimate_max_clusters,
     _estimate_min_clusters,
     _estimate_min_project_size,
     are_minimum_constraints_satisfied,
     can_spend_full_budget,
     get_enforced_max_cost_per_project,
+    get_enforced_max_wells_per_project,
     min_project_cost_to_num_wells_cost_of_plugging,
     min_project_cost_to_num_wells_mobilization_cost,
 )
@@ -71,8 +73,47 @@ def test_get_enforced_max_cost_per_project(max_cost_project, max_wells_project, 
     assert enforced_max_cost == result
 
 
-def test_get_enforced_max_cost_per_project_no_constraints():
-    """Tests the get_enforced_max_cost_per_project function when no constraints are provided"""
+@pytest.mark.parametrize(
+    "max_cost_project, max_wells_project, result",
+    [
+        # enforced by maximum number of wells with a maximum cost per project
+        (350, 3, 3),
+        # enforced by maximum number of wells without a maximum cost per project
+        (None, 3, 3),
+        # enforced by maximum cost per project without a maximum number of wells
+        (350, None, 3),
+        # enforced by maximum cost per project with a maximum number of wells
+        (350, 5, 3),
+    ],
+)
+def test_get_enforced_max_wells_per_project(
+    max_cost_project, max_wells_project, result
+):
+    """Tests the get_enforced_max_wells_per_project function"""
+
+    enforced_max_cost = get_enforced_max_wells_per_project(
+        max_cost_project,
+        max_wells_project,
+        mobilization_cost={1: 100, 2: 200, 3: 300, 4: 400, 5: 500},
+    )
+
+    assert enforced_max_cost == result
+
+    enforced_max_cost = get_enforced_max_wells_per_project(
+        max_cost_project,
+        max_wells_project,
+        mobilization_cost=None,
+        average_cost_per_well=100,
+    )
+
+    assert enforced_max_cost == result
+
+
+def test_get_enforced_fucntions_with_no_constraints():
+    """
+    Tests get_enforced_max_cost_per_project and get_enforced_max_wells_per_project
+    when no constraints are provided.
+    """
 
     with pytest.raises(ValueError):
         get_enforced_max_cost_per_project(
@@ -83,6 +124,21 @@ def test_get_enforced_max_cost_per_project_no_constraints():
 
     with pytest.raises(ValueError):
         get_enforced_max_cost_per_project(
+            None,
+            None,
+            mobilization_cost=None,
+            average_cost_per_well=100,
+        )
+
+    with pytest.raises(ValueError):
+        get_enforced_max_wells_per_project(
+            None,
+            None,
+            mobilization_cost={1: 100, 2: 200, 3: 300, 4: 400, 5: 500},
+        )
+
+    with pytest.raises(ValueError):
+        get_enforced_max_wells_per_project(
             None,
             None,
             mobilization_cost=None,
@@ -489,6 +545,21 @@ DEFAULT_CONFIG = {
                 "Please relax the constraints and try again.",
             ],
         ),
+        # Budget can't be spent on the last iteration, cluster size capped
+        (
+            {
+                "objective": "minimum",
+                "max_iter": 2,
+                "min_wells_in_project": None,
+                "max_wells_in_project": 20,
+                "budget": 12.4e6,
+            },
+            15,
+            [
+                "Last iteration: maximum cluster size capped at 21 "
+                "in an attempt to spend the full budget."
+            ],
+        ),
         # Budget sufficient case
         (
             {"objective": "minimum", "budget": 14e6},
@@ -524,6 +595,7 @@ def test_perform_heuristic_constrained_clustering(
             constrained_clustering_objective=config["objective"],
             target_number_of_clusters=config["target_clusters"],
             uniformity_parameter=config["uniformity"],
+            constrained_clustering_max_iterations=config["max_iter"],
             objective_weight_impact=100,
         )
 
@@ -681,3 +753,67 @@ def test_estimate_max_clusters(min_size, result, make_well_data):
             _estimate_max_clusters(opt_model_inputs, min_size)
     else:
         assert _estimate_max_clusters(opt_model_inputs, min_size) == result
+
+
+def test_cap_max_cluster_size_no_constraints(make_well_data):
+    """
+    Tests that max_size is returned unchanged when there are no constraints
+    """
+    wd = make_well_data(tail=None, cost_of_plugging=100)
+
+    opt_model_inputs = OptModelInputs(
+        well_data=wd,
+        total_budget=5000,
+        max_cost_project=None,
+        min_cost_project=None,
+        max_wells_in_project=None,
+        min_wells_in_project=None,
+        mobilization_cost=None,
+        objective_weight_impact=100,
+    )
+
+    assert _cap_max_cluster_size(opt_model_inputs, 5, 100) == 100
+
+
+@pytest.mark.parametrize(
+    "size_max, cost_of_plugging, result",
+    [
+        # the cap is applied
+        (100, True, 55),
+        (100, False, 55),
+        (56, True, 55),
+        (56, False, 55),
+        # size_max is unchanged
+        (55, True, 55),
+        (55, False, 55),
+        (40, True, 40),
+        (40, False, 40),
+    ],
+)
+def test_cap_max_cluster_size(size_max, cost_of_plugging, result, make_well_data):
+    """
+    Tests _cap_max_cluster_size.
+
+    With 275 wells at a cost of 100 and a budget of 5000, 50 wells can be
+    plugged, so the overflow is 225 wells. With 5 clusters and at most 10 wells
+    per project the cap is max(10 + floor(225 / 5), ceil(275 / 5)) = 55.
+    """
+    if cost_of_plugging:
+        wd = make_well_data(tail=None, cost_of_plugging=100)
+        mobilization_cost = None
+    else:
+        wd = make_well_data(tail=None, cost_of_plugging=None)
+        mobilization_cost = {i: 100 * i for i in range(1, len(wd.data) + 1)}
+
+    opt_model_inputs = OptModelInputs(
+        well_data=wd,
+        total_budget=5000,
+        max_cost_project=None,
+        min_cost_project=None,
+        max_wells_in_project=10,
+        min_wells_in_project=None,
+        mobilization_cost=mobilization_cost,
+        objective_weight_impact=100,
+    )
+
+    assert _cap_max_cluster_size(opt_model_inputs, 5, size_max) == result

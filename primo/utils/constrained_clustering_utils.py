@@ -208,6 +208,79 @@ def _get_initial_n_clusters(
     )
 
 
+def _cap_max_cluster_size(
+    model_options: OptModelInputs, n_clusters: int, size_max: int
+) -> int:
+    """
+    This function is called on the last iteration if a valid clustering
+    hasn't been found yet (likely due to highly uneven cluster sizes) in a final
+    attempt to find a feasible solution. It estimates
+    the maximum wells per cluster required to spend the full budget for a
+    given number of clusters (enforcing more uniform clusters). The estimation is exact
+    for uniform well costs.
+
+    Divide the total well population into W - the wells that the budget can plug
+    and O - the overflow wells that can't be plugged. Cap each cluster at
+    max project size + floor(O/n_clusters) to ensure W wells can be plugged.
+
+    Parameters
+    ----------
+    model_options : OptModelInputs
+        Object containing the optimization model options
+    n_clusters : int
+        Number of clusters
+    size_max : int
+        Maximum wells per cluster from the current iteration
+
+    Returns
+    -------
+    int
+        The capped maximum cluster size or the original size_max if capping
+        the cluster size won't help
+    """
+    config = model_options.config
+    wd = config.well_data
+    total_wells = len(wd.data)
+
+    if config.max_wells_in_project is None and config.max_cost_project is None:
+        return size_max
+
+    average_cost_per_well = (
+        wd.data[wd.col_names.cost_of_plugging].mean()
+        if config.mobilization_cost is None
+        else None
+    )
+
+    max_wells = get_enforced_max_wells_per_project(
+        maximum_cost_per_project=config.max_cost_project,
+        maximum_wells_per_project=config.max_wells_in_project,
+        mobilization_cost=config.mobilization_cost,
+        average_cost_per_well=average_cost_per_well,
+    )
+
+    if config.mobilization_cost is not None:
+        cost_per_well = config.mobilization_cost[max_wells] / max_wells
+    else:
+        cost_per_well = average_cost_per_well
+
+    wells_to_plug = config.total_budget / cost_per_well
+
+    slack = total_wells - wells_to_plug
+
+    # KMeansConstrained requires n_clusters * size_max >= total_wells
+    size_max_capped = max(
+        max_wells + floor(slack / n_clusters), ceil(total_wells / n_clusters)
+    )
+    if size_max_capped >= size_max:
+        return size_max
+
+    LOGGER.info(
+        f"Last iteration: maximum cluster size capped at {size_max_capped} "
+        "in an attempt to spend the full budget."
+    )
+    return size_max_capped
+
+
 def _set_wd_cluster_column(wd: WellData, cluster_assignment: np.ndarray) -> None:
     """
     Overwrite (or set) the WellData object's cluster column with the given
@@ -392,6 +465,7 @@ def perform_heuristic_constrained_clustering(
 
     state = {
         "iteration": 0,
+        "valid_budget": True,
         "valid_min_constraints": True,
         "last_valid_cluster": None,
         "tried": [],
@@ -407,6 +481,15 @@ def perform_heuristic_constrained_clustering(
             ceil(len(wd.data) / n_clusters) - len(wd.data)
         ) * uniformity_parameter + len(wd.data)
 
+        # Attempts to enforce more uniform clusters if the full budget still can't be
+        # spent by the last iteration
+        if (
+            state["iteration"] == max_iterations
+            and state["last_valid_cluster"] is None
+            and not state["valid_budget"]
+        ):
+            size_max = _cap_max_cluster_size(model_options, n_clusters, size_max)
+
         # Determine if min_size needs to be relaxed
         if min_size * n_clusters > len(wd.data):
             min_size = floor(len(wd.data) / n_clusters)
@@ -421,17 +504,17 @@ def perform_heuristic_constrained_clustering(
 
         (
             clustered_data,
-            valid_budget,
+            state["valid_budget"],
             state["valid_min_constraints"],
             valid_clustering,
         ) = _run_clustering_iteration(wd, n_clusters, min_size, size_max, model_options)
         LOGGER.info(
-            f"Valid budget: {valid_budget}, "
+            f"Valid budget: {state["valid_budget"]}, "
             f"Valid min constraints: {state['valid_min_constraints']}, "
             f"Valid clustering: {valid_clustering}"
         )
 
-        if not valid_budget and not state["valid_min_constraints"]:
+        if not state["valid_budget"] and not state["valid_min_constraints"]:
             return _finish_search(
                 wd,
                 state["last_valid_cluster"],
@@ -464,7 +547,7 @@ def perform_heuristic_constrained_clustering(
         # Continue to the next iteration
         state["tried"].append(n_clusters)
         n_clusters = _advance_n_clusters(
-            n_clusters, valid_budget, state["valid_min_constraints"], objective
+            n_clusters, state["valid_budget"], state["valid_min_constraints"], objective
         )
 
         # KMeansConstrained raises an error if there are zero clusters or more clusters than wells
@@ -535,6 +618,64 @@ def get_enforced_max_cost_per_project(
             max_cost_list.append(average_cost_per_well * maximum_wells_per_project)
 
     return min(max_cost_list)
+
+
+def get_enforced_max_wells_per_project(
+    maximum_cost_per_project: Optional[float],
+    maximum_wells_per_project: Optional[int],
+    mobilization_cost: Optional[dict[int, float]],
+    average_cost_per_well: Optional[float] = None,
+) -> int:
+    """
+    This function determines which of the "maximum cost per project" or "maximum number of wells
+    per project" parameters is enforcing the constraint on maximum project size.
+
+    This should only be called if at least one of the parameters is specified.
+
+    Parameters
+    ----------
+    maximum_cost_per_project : Optional[float]
+        Maximum cost per project
+
+    maximum_wells_per_project : Optional[int]
+        Maximum number of wells
+
+    mobilization_cost : Optional[dict[int, float]]
+        Dictionary mapping number of wells to total cost
+
+    average_cost_per_well : Optional[float]
+        Average cost per well, used if mobilization_cost is not provided
+
+    Returns
+    -------
+    int
+        Enforced maximum wells per project
+    """
+    if maximum_cost_per_project is None and maximum_wells_per_project is None:
+        raise_exception(
+            "At least one of maximum_cost_per_project or maximum_wells_per_project must be "
+            "specified.",
+            ValueError,
+        )
+
+    max_wells_list = []
+    if maximum_wells_per_project is not None:
+        max_wells_list.append(maximum_wells_per_project)
+
+    if maximum_cost_per_project is not None:
+        if mobilization_cost is not None:
+            valid_wells = [
+                num_wells
+                for num_wells, cost in mobilization_cost.items()
+                if cost <= maximum_cost_per_project
+            ]
+            max_wells_list.append(max(valid_wells))
+        else:
+            max_wells_list.append(
+                floor(maximum_cost_per_project / average_cost_per_well)
+            )
+
+    return min(max_wells_list)
 
 
 def min_project_cost_to_num_wells_cost_of_plugging(
