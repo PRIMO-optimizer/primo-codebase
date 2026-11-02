@@ -9,6 +9,7 @@
 # reproduce, distribute copies to the public, prepare derivative works, and
 # perform publicly and display publicly, and to permit others to do so.
 #################################################################################
+# pylint: disable=too-many-lines
 
 from __future__ import annotations  # avoid circular imports for type hints
 
@@ -346,38 +347,99 @@ def _run_clustering_iteration(
     return clustered_data, valid_budget, valid_min_constraints, valid_clustering
 
 
-def _advance_n_clusters(
-    n_clusters: int, valid_budget: bool, valid_min_constraints: bool, objective: str
-) -> int:
+def _update_search_bounds(state: dict, n_clusters: int, objective: str) -> None:
     """
-    Decide the next candidate number of clusters to try, based on which
-    constraint failed (if any) for the current attempt.
+    Sets the current iteration's n_clusters as a bound on the search range. The state dict is
+    updated in place.
+
+    Attempts that need more clusters become the lower bound
+    (the full budget can't be spent or the objective is maximum).
+
+    Attempts that need fewer clusters become the upper bound
+    (the minimum constraints aren't satisfied or the objective is minimum).
 
     Parameters
     ----------
+    state : dict
+        Contains the state of the search
     n_clusters : int
         Number of clusters used in the current attempt
-    valid_budget : bool
-        Whether the current attempt satisfies the budget constraint
-    valid_min_constraints : bool
-        Whether the current attempt satisfies the minimum-size constraints
     objective : str
         One of "center", "maximum", "minimum", "target"
+    """
+    valid_clustering = state["valid_min_constraints"] and state["valid_budget"]
+    if not state["valid_budget"] or (objective == "maximum" and valid_clustering):
+        state["lower"] = n_clusters
+    else:
+        state["upper"] = n_clusters
+
+
+def _clusters_to_spend_budget(model_options: OptModelInputs, n_clusters: int) -> int:
+    """
+    Estimate the number of clusters needed to spend the full budget, assuming the
+    spendable budget per cluster stays the same as in the current clustering.
+
+    Parameters
+    ----------
+    model_options : OptModelInputs
+        Object containing the optimization model options
+    n_clusters : int
+        Number of clusters used in the current attempt
 
     Returns
     -------
     int
         Number of clusters to try next
     """
-    if not valid_budget:
+    wd = model_options.config.well_data
+    spendable_budget = get_spendable_budget(_well_clusters(wd), model_options)
+    if spendable_budget == 0:  # edge case protection if there are $0 wells
         return n_clusters + 1
-    if not valid_min_constraints:
+
+    return max(
+        n_clusters + 1,
+        ceil(n_clusters * model_options.config.total_budget / spendable_budget),
+    )
+
+
+def _advance_n_clusters(
+    n_clusters: int, state: dict, model_options: OptModelInputs
+) -> int:
+    """
+    Decides the number of clusters for the next iteration. If
+    a lower and upper bound have already been found the search bisects between them.
+    Otherwise the search moves in the direction to find the unknown bound.
+
+    Parameters
+    ----------
+    n_clusters : int
+        Number of clusters used in the current attempt
+    state : dict
+        Search state, with bounds updated by _update_search_bounds
+    model_options : OptModelInputs
+        Object containing the optimization model options
+
+    Returns
+    -------
+    int
+        Number of clusters to try next
+    """
+    if state["lower"] is not None and state["upper"] is not None:
+        LOGGER.info(
+            f"Bisecting between {state['lower']} and {state['upper']} clusters."
+        )
+        return (state["lower"] + state["upper"]) // 2
+
+    if state["lower"] != n_clusters:
         return n_clusters - 1
-    if objective == "maximum":
+
+    if state["valid_budget"]:
         return n_clusters + 1
-    if objective == "minimum":
-        return n_clusters - 1
-    return n_clusters
+
+    return min(
+        _clusters_to_spend_budget(model_options, n_clusters),
+        len(model_options.config.well_data.data),
+    )
 
 
 # pylint: disable=inconsistent-return-statements
@@ -469,6 +531,9 @@ def perform_heuristic_constrained_clustering(
         "valid_min_constraints": True,
         "last_valid_cluster": None,
         "tried": [],
+        # Bounds for the n_clusters search
+        "lower": None,
+        "upper": None,
     }
 
     while True:
@@ -509,7 +574,7 @@ def perform_heuristic_constrained_clustering(
             valid_clustering,
         ) = _run_clustering_iteration(wd, n_clusters, min_size, size_max, model_options)
         LOGGER.info(
-            f"Valid budget: {state["valid_budget"]}, "
+            f"Valid budget: {state['valid_budget']}, "
             f"Valid min constraints: {state['valid_min_constraints']}, "
             f"Valid clustering: {valid_clustering}"
         )
@@ -546,9 +611,8 @@ def perform_heuristic_constrained_clustering(
 
         # Continue to the next iteration
         state["tried"].append(n_clusters)
-        n_clusters = _advance_n_clusters(
-            n_clusters, state["valid_budget"], state["valid_min_constraints"], objective
-        )
+        _update_search_bounds(state, n_clusters, objective)
+        n_clusters = _advance_n_clusters(n_clusters, state, model_options)
 
         # KMeansConstrained raises an error if there are zero clusters or more clusters than wells
         if n_clusters in state["tried"] or n_clusters == 0 or n_clusters > len(wd.data):
@@ -772,7 +836,8 @@ def can_spend_full_budget(
     clusters: dict[int, list[int]], model_options: OptModelInputs
 ) -> bool:
     """
-    Checks if the given clusters satisfy the constraints specified in model_options.
+    Checks if the given clusters can spend the entire budget given the constraints
+    specified in model_options.
 
     Parameters
     ----------
@@ -784,7 +849,7 @@ def can_spend_full_budget(
     Returns
     -------
     bool
-        True if the clusters satisfy the constraints, False otherwise
+        True if the entire budget can be spent, False otherwise
     """
 
     # Extract the necessary configuration options
@@ -804,6 +869,31 @@ def can_spend_full_budget(
     # budget sufficient case - the entire budget can't be spent anyway
     if budget_sufficient_case(clusters, model_options):
         return True
+
+    return bool(get_spendable_budget(clusters, model_options) >= config.total_budget)
+
+
+def get_spendable_budget(
+    clusters: dict[int, list[int]], model_options: OptModelInputs
+) -> float:
+    """
+    Calculates the maximum amount of money that can be spent plugging the wells for a given set of
+    clusters, limited by maximum project cost and size constraints.
+
+    Parameters
+    ----------
+    clusters : dict[int, list[int]]
+        A dictionary mapping cluster IDs to lists of wells in each cluster
+    model_options : OptModelInputs
+        The optimization model options
+
+    Returns
+    -------
+    float
+        The maximum amount of money that can be spent given the clustering and project constraints
+    """
+    wd = model_options.config.well_data
+    config = model_options.config
 
     # the number of wells in each cluster
     wells_per_cluster = {}
@@ -845,10 +935,7 @@ def can_spend_full_budget(
 
         total_max_cost += min(max_cost_list)
 
-    if total_max_cost < config.total_budget:
-        return False
-
-    return True
+    return total_max_cost
 
 
 def budget_sufficient_case(

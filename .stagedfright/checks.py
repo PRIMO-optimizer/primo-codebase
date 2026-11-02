@@ -76,7 +76,7 @@ MAP_PATH_EXPECTED_HARDCODED_DATA_COUNT = {
     "primo/utils/solvers.py": 4,
     "primo/utils/tests/test_clustering_utils.py": 66,
     "primo/utils/tests/test_config_utils.py": 195,
-    "primo/utils/tests/test_constrained_clustering_utils.py": 577,
+    "primo/utils/tests/test_constrained_clustering_utils.py": 596,
     "primo/utils/tests/test_demo_utils.py": 92,
     "primo/utils/tests/test_domain_validators.py": 18,
     "primo/utils/tests/test_elevation_utils.py": 35,

@@ -24,10 +24,12 @@ from primo import OptModelInputs
 from primo.data_parser import WellDataColumnNames
 from primo.data_parser.well_data import WellData
 from primo.utils.constrained_clustering_utils import (
+    _advance_n_clusters,
     _cap_max_cluster_size,
     _estimate_max_clusters,
     _estimate_min_clusters,
     _estimate_min_project_size,
+    _update_search_bounds,
     are_minimum_constraints_satisfied,
     can_spend_full_budget,
     get_enforced_max_cost_per_project,
@@ -487,6 +489,38 @@ def test_are_minimum_constraints_satisfied_cost_of_plugging(
     assert are_minimum_constraints_satisfied(clusters, model_inputs) is result
 
 
+@pytest.mark.parametrize(
+    "objective, valid_budget, valid_min_constraints, bounds, result",
+    [
+        # bounded: bisect between the bounds
+        ("minimum", False, True, (None, 16), 13),
+        ("center", True, False, (4, None), 7),
+        # valid clustering with no lower bound: step down
+        ("minimum", True, True, (None, None), 9),
+        # valid clustering with no upper bound: step up
+        ("maximum", True, True, (None, None), 11),
+        # minimum constraints fail with no lower bound yet: step down
+        ("center", True, False, (None, None), 9),
+    ],
+)
+def test_advance_n_clusters(
+    objective, valid_budget, valid_min_constraints, bounds, result
+):
+    """
+    Tests the single-step and bisection logic of _advance_n_clusters for an
+    attempt with 10 clusters.
+    """
+    state = {
+        "valid_budget": valid_budget,
+        "valid_min_constraints": valid_min_constraints,
+        "lower": bounds[0],
+        "upper": bounds[1],
+    }
+    _update_search_bounds(state, 10, objective)
+
+    assert _advance_n_clusters(10, state, model_options=None) == result
+
+
 DEFAULT_CONFIG = {
     "objective": "target",
     "uniformity": 0,
@@ -505,10 +539,11 @@ DEFAULT_CONFIG = {
         ({"objective": "maximum", "uniformity": 0.25}, 55, []),
         ({"uniformity": 0.5}, 10, []),
         ({"objective": "center", "uniformity": 1}, 28, []),
+        # Max iterations without a valid clustering
         (
-            {"max_iter": 1, "target_clusters": 1, "max_wells_in_project": 20},
+            {"max_iter": 0, "target_clusters": 1, "max_wells_in_project": 20},
             RuntimeError,
-            [],
+            ["Could not find a valid clustering within 0 iterations."],
         ),
         (
             {
@@ -554,10 +589,24 @@ DEFAULT_CONFIG = {
                 "max_wells_in_project": 20,
                 "budget": 12.4e6,
             },
-            15,
+            26,
             [
                 "Last iteration: maximum cluster size capped at 21 "
                 "in an attempt to spend the full budget."
+            ],
+        ),
+        # Requires updated search + bisection to succeed
+        (
+            {
+                "objective": "minimum",
+                "min_wells_in_project": None,
+                "max_wells_in_project": 20,
+                "budget": 12.4e6,
+            },
+            30,
+            [
+                "Bisecting between 28 and 30 clusters.",
+                "Iteration 5: Trying with 29 clusters",
             ],
         ),
         # Budget sufficient case
