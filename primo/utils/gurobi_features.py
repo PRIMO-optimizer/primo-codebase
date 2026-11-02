@@ -35,11 +35,13 @@ EXPECTED_ZONE_CONSTRAINTS = (
     "eliminate_wells",  # Weak well based
     "suppress_wells_rlt_1",  # Weak well pair
     "suppress_wells_rlt_2",  # Weak well pair
+    "eliminate_cliques",  # Clique-based well pairs
 )
 EXPECTED_ZONE_PAIR_CONSTRAINTS = (
     "eliminate_well_pairs",  # Weak well based
     "suppress_wells_rlt_1",  # Weak well pair
     "suppress_wells_rlt_2",  # Weak well pair
+    "eliminate_cliques",  # Clique-based well pairs
 )
 
 

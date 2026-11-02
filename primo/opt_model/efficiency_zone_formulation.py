@@ -22,7 +22,6 @@ from pyomo.environ import (
     Binary,
     Constraint,
     NonNegativeReals,
-    RangeSet,
     Set,
     UnitInterval,
     Var,
@@ -88,15 +87,17 @@ class ZoneFormulationBlockData(BlockData):
             self.score.fix(0)
             return
 
-        self.set_zones = RangeSet(zone_wells.min(), zone_wells.max())
+        unique_zones = zone_wells.unique().astype(int)
+        unique_zones.sort()
+        self.set_zones = Set(initialize=unique_zones.tolist())
         self.select_zone = Var(
             self.set_zones,
             domain=Binary,
             doc="Binary variable associated with each zone",
         )
         LOGGER.info(
-            f"Zone range for metric {metric.name} in cluster {cm.index()} "
-            f"is {min(self.set_zones)} - {max(self.set_zones)}"
+            f"Metric {metric.name} in cluster {cm.index()} has {len(unique_zones)} "
+            f"zones between {min(self.set_zones)} - {max(self.set_zones)}"
         )
         self.choose_single_zone = Constraint(
             expr=sum(self.select_zone[:]) == cm.select_cluster
@@ -238,6 +239,9 @@ class ZoneFormulationBlockData(BlockData):
         starting_zone = min(self.set_zones)
         for well, zone in zone_wells.items():
             for z in range(starting_zone, zone):
+                if z not in self.set_zones:
+                    continue
+
                 self.select_well_zone[well, z].fix(0)
 
     def _build_well_pair_model(self, zone_wells: pd.Series):
@@ -259,6 +263,10 @@ class ZoneFormulationBlockData(BlockData):
         @self.Constraint(self.set_zones)
         def acceptable_wells(blk, z):
             allowed_wells = zone_wells[zone_wells <= z].index
+            if len(allowed_wells) == len(zone_wells):
+                # All wells can be selected, so no constraint needed
+                return Constraint.Skip
+
             return sum(
                 n * blk.num_wells_var_zone[n, z] for n in cm.set_num_wells
             ) <= sum(cm.select_well[w] for w in allowed_wells)
