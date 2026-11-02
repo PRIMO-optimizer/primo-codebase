@@ -28,8 +28,8 @@ def get_dummy_model_fixture():
     m.set_wells = pyo.RangeSet(5)
 
     m.select_well = pyo.Var(m.set_wells, within=pyo.Binary)
-    m.num_wells_var = pyo.Var(range(1, len(m.set_wells) + 1), within=pyo.Binary)
-    m.num_wells_adjustment = pyo.Param(range(1, len(m.set_wells) + 1), initialize=1)
+    m.set_num_wells = pyo.RangeSet(5)
+    m.num_wells_var = pyo.Var(m.set_num_wells, within=pyo.Binary)
     m.select_cluster = pyo.Var(within=pyo.Binary)
 
     return m
@@ -43,6 +43,11 @@ def test_eff_block_no_input_var(get_dummy_model):
     eff_blk = m.efficiency_model
 
     # Test the existence of variables
+    assert eff_blk.cluster_model is m
+    assert eff_blk.plugging_campaign_model is None
+    assert isinstance(eff_blk.num_wells_adjustment, pyo.Param)
+    for i in m.set_num_wells:
+        assert eff_blk.num_wells_adjustment[i] == 1
     assert isinstance(eff_blk.cluster_efficiency, pyo.Var)
     assert isinstance(eff_blk.aggregated_efficiency, pyo.Var)
     assert isinstance(eff_blk.calculate_aggregated_efficiency_1, pyo.Constraint)

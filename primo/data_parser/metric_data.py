@@ -864,3 +864,25 @@ class EfficiencyMetrics(SetOfMetrics):
             zd.set_domain(efficiency_metrics[metric.name].zone_data["domain"])
             zd.set_default_value(efficiency_metrics[metric.name].zone_data["default"])
             zd.set_value(efficiency_metrics[metric.name].zone_data["default"])
+
+    def compute_zones(self, num_zones: int):
+        """Generates a list of zones for a given scaling factor
+
+        Parameters
+        ----------
+        num_zones : int
+            Number of zones
+        """
+        for metric in self.selected_metrics:
+            if metric.name == "num_wells":
+                # Score for this metric is computed using scaling factor
+                continue
+
+            zone_length = metric.normalization_factor / (num_zones - 1)
+            eff_delta = 1 / (num_zones - 1)
+
+            # Rounding all metric zones to the nearest integers
+            metric.zone_data = {
+                round(i * zone_length, 2): 1 - (i - 1) * eff_delta
+                for i in range(1, num_zones)
+            }
