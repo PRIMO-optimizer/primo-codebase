@@ -347,7 +347,11 @@ def _run_clustering_iteration(
     return clustered_data, valid_budget, valid_min_constraints, valid_clustering
 
 
-def _update_search_bounds(state: dict, n_clusters: int, objective: str) -> None:
+def _update_search_bounds(
+    state: dict[str, int | bool | list[int] | dict[int, list[int]] | None],
+    n_clusters: int,
+    objective: str,
+) -> None:
     """
     Sets the current iteration's n_clusters as a bound on the search range. The state dict is
     updated in place.
@@ -360,7 +364,7 @@ def _update_search_bounds(state: dict, n_clusters: int, objective: str) -> None:
 
     Parameters
     ----------
-    state : dict
+    state : dict[str, int | bool | list[int] | dict[int, list[int]] | None]
         Contains the state of the search
     n_clusters : int
         Number of clusters used in the current attempt
@@ -403,7 +407,9 @@ def _clusters_to_spend_budget(model_options: OptModelInputs, n_clusters: int) ->
 
 
 def _advance_n_clusters(
-    n_clusters: int, state: dict, model_options: OptModelInputs
+    n_clusters: int,
+    state: dict[str, int | bool | list[int] | dict[int, list[int]] | None],
+    model_options: OptModelInputs,
 ) -> int:
     """
     Decides the number of clusters for the next iteration. If
@@ -414,7 +420,7 @@ def _advance_n_clusters(
     ----------
     n_clusters : int
         Number of clusters used in the current attempt
-    state : dict
+    state : dict[str, int | bool | list[int] | dict[int, list[int]] | None]
         Search state, with bounds updated by _update_search_bounds
     model_options : OptModelInputs
         Object containing the optimization model options
@@ -529,7 +535,7 @@ def perform_heuristic_constrained_clustering(
         "iteration": 0,
         "valid_budget": True,
         "valid_min_constraints": True,
-        "last_valid_cluster": None,
+        "last_valid_cluster": None,  # stores the cluster dict of the most recent valid result
         "tried": [],
         # Bounds for the n_clusters search
         "lower": None,
@@ -723,11 +729,11 @@ def get_enforced_max_wells_per_project(
         )
 
     max_wells_list = []
-    if maximum_wells_per_project is not None:
+    if maximum_wells_per_project:
         max_wells_list.append(maximum_wells_per_project)
 
-    if maximum_cost_per_project is not None:
-        if mobilization_cost is not None:
+    if maximum_cost_per_project:
+        if mobilization_cost:
             valid_wells = [
                 num_wells
                 for num_wells, cost in mobilization_cost.items()

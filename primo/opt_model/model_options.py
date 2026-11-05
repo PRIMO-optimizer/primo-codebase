@@ -803,20 +803,26 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
             )
 
         # minimum and maximum project size don't overlap
-        if min_project_size is not None and max_project_size is not None:
-            if min_project_size > max_project_size:
-                raise_exception(
-                    "Minimum project size cannot be greater than maximum project size.",
-                    ValueError,
-                )
+        if (
+            min_project_size
+            and max_project_size
+            and min_project_size > max_project_size
+        ):
+            raise_exception(
+                "Minimum project size cannot be greater than maximum project size.",
+                ValueError,
+            )
 
         # minimum and maximum project cost don't overlap
-        if min_project_cost is not None and max_project_cost is not None:
-            if min_project_cost > max_project_cost:
-                raise_exception(
-                    "Minimum project cost cannot be greater than maximum project cost.",
-                    ValueError,
-                )
+        if (
+            min_project_cost
+            and max_project_cost
+            and min_project_cost > max_project_cost
+        ):
+            raise_exception(
+                "Minimum project cost cannot be greater than maximum project cost.",
+                ValueError,
+            )
 
         # TODO: preliminary checks converting cost to number of wells
 
