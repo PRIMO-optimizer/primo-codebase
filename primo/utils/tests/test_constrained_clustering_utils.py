@@ -615,9 +615,8 @@ DEFAULT_CONFIG = {
             6,
             [
                 "The budget is sufficient to plug all wells. "
-                "Constrained heuristic clustering is designed for budget insufficient cases, "
-                "consider using a different clustering method "
-                "(Agglomerative, Louvain, Exhaustive)."
+                "Constrained heuristic clustering is designed for budget insufficient "
+                "cases, consider using the exhaustive clustering method instead."
             ],
         ),
     ],
