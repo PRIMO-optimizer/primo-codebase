@@ -104,6 +104,10 @@ class GurobiSolver:
             "status": gm.Status,
             "num_nodes_explored": gm.NodeCount,
             "num_nodes_remaining": gm.OpenNodeCount,
+            "num_lazy_constraints": sum(
+                1 if constr.Lazy >= 1 else 0 for constr in gm.getConstrs()
+            ),
+            "num_indicator_constraints": gm.NumGenConstrs,
         }
 
     def set_branch_priorities(

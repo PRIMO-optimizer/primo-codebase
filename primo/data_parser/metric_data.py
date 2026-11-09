@@ -883,6 +883,6 @@ class EfficiencyMetrics(SetOfMetrics):
 
             # Rounding all metric zones to the nearest integers
             metric.zone_data = {
-                round(i * zone_length, 2): 1 - (i - 1) * eff_delta
+                round(i * zone_length, 4): 1 - (i - 1) * eff_delta
                 for i in range(1, num_zones)
             }
