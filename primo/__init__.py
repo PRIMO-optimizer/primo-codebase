@@ -24,5 +24,5 @@ from primo.utils.override_utils import AssessFeasibility, OverrideCampaign
 from primo.utils.setup_logger import setup_logger
 from primo.utils.solvers import get_solver
 
-RELEASE = "0.4.9"
-VERSION = "0.4.9"
+RELEASE = "0.4.10rc1"
+VERSION = "0.4.10rc1"
