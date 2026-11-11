@@ -14,6 +14,7 @@
 import logging
 
 # Installed libs
+import highspy
 from pyomo.contrib.appsi.base import TerminationCondition
 from pyomo.contrib.solver.solvers.highs import Highs
 from pyomo.environ import SolverFactory
@@ -92,6 +93,10 @@ def get_solver(
         for k, v in solver_options.items():
             if hasattr(sol_obj.config, k):
                 setattr(sol_obj.config, k, v)
+
+        highs = highspy.Highs()
+        for option, value in solver_options.items():
+            highs.setOptionValue(option, value)
 
         return sol_obj
 
