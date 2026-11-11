@@ -208,7 +208,6 @@ def test_opt_model_inputs(get_column_names, cluster_method, num_projects):
     opt_campaign = opt_mdl_inputs.solve_model(
         solver="highs", mip_gap=50e-2, solver_options=HIGHS_SOLVER_OPTIONS
     )
-    assert False
     opt_mdl = opt_mdl_inputs.optimization_model
 
     assert hasattr(opt_mdl_inputs, "config")
