@@ -16,6 +16,7 @@ import pathlib
 import sys
 
 # Installed libs
+import highspy
 import numpy as np
 import pandas as pd
 import pyomo.environ as pe
@@ -411,8 +412,12 @@ def test_opt_model_with_overlapping_clustering(get_column_names):
     assert opt_mdl_inputs.check_sufficient_budget
     assert len(opt_mdl_inputs.campaign_candidates) == 20
 
+    highspy.Highs.resetGlobalScheduler(True)
+
     opt_mdl_inputs.build_optimization_model()
-    opt_campaign = opt_mdl_inputs.solve_model(solver="highs", mip_gap=5e-2)
+    opt_campaign = opt_mdl_inputs.solve_model(
+        solver="highs", mip_gap=5e-2, solver_options={"threads": 1}
+    )
     opt_mdl = opt_mdl_inputs.optimization_model
 
     assert hasattr(opt_mdl_inputs, "config")
@@ -756,3 +761,5 @@ def test_opt_model_with_plugging_costs(get_column_names, caplog):
         pytest.approx(override_campaign.feasibility.campaign_cost_dict[1], 1e-3)
         == 0.1685175862142096
     )
+    # reset high so it doesn't use one thread
+    highspy.Highs.resetGlobalScheduler(True)
