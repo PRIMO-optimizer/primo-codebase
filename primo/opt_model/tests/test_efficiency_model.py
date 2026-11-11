@@ -31,6 +31,7 @@ from primo.opt_model.cluster_block import IndexedClusterBlock
 from primo.opt_model.model_options import OptModelInputs
 from primo.opt_model.model_with_clustering import PluggingCampaignModel
 from primo.opt_model.result_parser import Campaign, Project
+from primo.opt_model.tests import HIGHS_SOLVER_OPTIONS
 from primo.utils.config_utils import (
     OverrideAddInfo,
     OverrideRemoveLockInfo,
@@ -204,7 +205,9 @@ def test_opt_model_inputs(get_column_names, cluster_method, num_projects):
     assert "Clusters" in wd_gas
 
     opt_mdl_inputs.build_optimization_model()
-    opt_campaign = opt_mdl_inputs.solve_model(solver="highs", mip_gap=50e-2)
+    opt_campaign = opt_mdl_inputs.solve_model(
+        solver="highs", mip_gap=50e-2, solver_options=HIGHS_SOLVER_OPTIONS
+    )
     opt_mdl = opt_mdl_inputs.optimization_model
 
     assert hasattr(opt_mdl_inputs, "config")
@@ -537,7 +540,9 @@ def test_opt_model_with_sufficient_budget_edge_case(get_column_names, caplog):
     assert len(opt_mdl_inputs.campaign_candidates) == 20
 
     opt_mdl_inputs.build_optimization_model()
-    opt_campaign = opt_mdl_inputs.solve_model(solver="highs", mip_gap=5e-2)
+    opt_campaign = opt_mdl_inputs.solve_model(
+        solver="highs", mip_gap=5e-2, solver_options=HIGHS_SOLVER_OPTIONS
+    )
     opt_mdl = opt_mdl_inputs.optimization_model
 
     assert hasattr(opt_mdl_inputs, "config")
@@ -663,7 +668,9 @@ def test_opt_model_with_plugging_costs(get_column_names, caplog):
     assert "Clusters" in wd
 
     opt_mdl_inputs.build_optimization_model()
-    opt_campaign = opt_mdl_inputs.solve_model(solver="highs", mip_gap=5e-2)
+    opt_campaign = opt_mdl_inputs.solve_model(
+        solver="highs", mip_gap=5e-2, solver_options=HIGHS_SOLVER_OPTIONS
+    )
     opt_mdl = opt_mdl_inputs.optimization_model
 
     assert hasattr(opt_mdl_inputs, "config")
