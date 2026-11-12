@@ -419,7 +419,7 @@ def test_opt_model_with_overlapping_clustering(get_column_names):
 
     opt_mdl_inputs.build_optimization_model()
     opt_campaign = opt_mdl_inputs.solve_model(
-        solver="highs", mip_gap=5e-2, solver_options={"threads": 1}
+        solver="highs", mip_gap=5e-2, solver_options=HIGHS_SOLVER_OPTIONS
     )
     opt_mdl = opt_mdl_inputs.optimization_model
 
