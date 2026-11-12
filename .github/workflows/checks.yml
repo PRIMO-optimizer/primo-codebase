@@ -60,6 +60,24 @@ jobs:
             os: linux
             cov-report: true
     steps:
+      - name: Print solver environment
+          run: |
+            python - <<'PY'
+            import sys
+            import platform
+            import importlib.metadata
+            import highspy
+            import pyomo
+
+            print("Python:", sys.version)
+            print("OS:", platform.platform())
+            print("Architecture:", platform.machine())
+            print("Processor:", platform.processor())
+            print("Pyomo:", pyomo.__version__)
+            print("highspy:", importlib.metadata.version("highspy"))
+            print("HiGHS:", highspy.Highs().version())
+            print("NumPy:", importlib.metadata.version("numpy"))
+            PY
       - uses: actions/checkout@v4
         if: matrix.install-mode == 'dev'
       - uses: actions/setup-python@v5
