@@ -18,6 +18,7 @@ import pathlib
 from itertools import combinations
 
 # Installed libs
+import highspy
 import numpy as np
 import pyomo.environ as pe
 import pytest
@@ -31,6 +32,7 @@ from primo.opt_model.cluster_block import IndexedClusterBlock
 from primo.opt_model.model_options import OptModelInputs
 from primo.opt_model.model_with_clustering import PluggingCampaignModel
 from primo.opt_model.result_parser import Campaign, Project
+from primo.opt_model.tests import HIGHS_SOLVER_OPTIONS
 from primo.opt_model.tests.test_efficiency_model import (
     get_column_names_fixture as efficiency_get_column_names_fixture,
 )
@@ -1467,7 +1469,12 @@ def test_override_re_optimization_anchor_well_handling(get_mdl_input_exhaustive)
     opt_mdl_inputs.config.max_age_range = 118
     opt_mdl_inputs.config.max_depth_range = 10591
     opt_mdl_inputs.build_optimization_model()
-    opt_campaign = opt_mdl_inputs.solve_model(solver="highs", mip_gap=0.2)
+
+    highspy.Highs.resetGlobalScheduler(True)
+
+    opt_campaign = opt_mdl_inputs.solve_model(
+        solver="highs", mip_gap=0.2, solver_options=HIGHS_SOLVER_OPTIONS
+    )
 
     # Remove clusters to test the _check_missing_well function
     # If an anchor well - 21 - is reassigned
