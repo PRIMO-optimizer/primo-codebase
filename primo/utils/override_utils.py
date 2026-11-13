@@ -30,6 +30,7 @@ from primo.opt_model.result_parser import Campaign
 from primo.utils.clustering_utils import distance_matrix
 
 LOGGER = logging.getLogger(__name__)
+UPPER_BOUND_DISTANCE = 1e6  # farthest two points on earth is around 12,450 miles
 
 
 class AssessFeasibility:
@@ -129,7 +130,9 @@ class AssessFeasibility:
         """
         Assess whether the maximum distance between two wells constraint is violated or not
         """
-        distance_threshold = self.opt_inputs.config.threshold_distance
+        distance_threshold = self.opt_inputs.config.max_dist_range
+        if not self.opt_inputs.config.max_dist_range:
+            distance_threshold = UPPER_BOUND_DISTANCE
         distance_violation = {}
         # Assign weight for distance as 1 to ensure the distance matrix returns physical
         # distance between two well pairs
