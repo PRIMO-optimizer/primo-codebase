@@ -78,7 +78,7 @@ dev = [
     "addheader==0.3.2",
     "black==25.1.0",
     "isort==9.0.1",
-    "linkify-it-py==2.0.3",
+    "linkify-it-py==2.2.0",
     "myst-parser==5.1.0",
     "nbsphinx==0.9.7",
     "pre-commit==4.6.2",
