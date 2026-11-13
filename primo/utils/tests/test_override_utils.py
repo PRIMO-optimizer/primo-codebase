@@ -70,7 +70,6 @@ def get_model_fixture_no_max_owc(get_column_names, eff_metric):
         total_budget=3210000,  # 3.25 million USD
         mobilization_cost=mobilization_cost,
         threshold_distance=20,
-        max_dist_range=10,
         objective_weight_impact=100,
     )
 
