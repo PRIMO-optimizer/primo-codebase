@@ -51,9 +51,11 @@ bool
 boolean
 in
 centroid
+centroids
 checkboxes
 codebase
 codecov
+comparator
 conda
 config
 csv
@@ -80,8 +82,10 @@ glpk
 gpd
 gurobi
 hasattr
+haversine
 hov
 highs
+infeasibility
 inplace
 ipynb
 ipywidgets
@@ -101,6 +105,7 @@ np
 num
 numpy
 openroutingservice
+os
 param
 pathlib
 pre

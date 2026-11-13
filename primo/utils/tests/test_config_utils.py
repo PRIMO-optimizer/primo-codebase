@@ -339,6 +339,7 @@ def get_model_fixture(get_column_names, eff_metric):
         total_budget=3210000,  # 3.21 million USD
         mobilization_cost=mobilization_cost,
         threshold_distance=20,
+        max_dist_range=20,
         max_wells_per_owner=1,
         max_wells_in_project=None,
         objective_weight_impact=100,
