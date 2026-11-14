@@ -12,3 +12,9 @@
 
 # Optimization Feasibility tolerance
 FEASIBILITY_TOLERANCE = 1e-6
+HIGHS_SOLVER_OPTIONS = {
+    "threads": 1,
+    "random_seed": 2026,
+    "parallel": "off",
+    "mip_heuristic_effort": 0,
+}
