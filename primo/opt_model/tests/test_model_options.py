@@ -1606,3 +1606,40 @@ def test_override_re_optimization_exhaustive_remove_wells(get_mdl_input_exhausti
 
     # Update the model input based on the override selection
     opt_mdl_inputs.update_cluster(override_selections)
+
+
+def test_override_reoptimization_anchor_well_into_own_cluster(
+    get_mdl_input_exhaustive,
+):
+    """
+    Tests that clusters don't have duplicate wells when a well is reassigned from its own
+    cluster to its own cluster (duplicate well entries can cause errors when building the
+    optimization model).
+    """
+
+    add_widget_return = OverrideAddInfo(
+        {21: [21], 83: [716]},  # the existing clusters
+        {21: [21, 716]},  # the new clusters
+    )
+
+    override_selections = OverrideSelections(
+        add_widget_return=add_widget_return,
+        remove_widget_return=OverrideRemoveLockInfo([], {21: [21], 83: [716]}),
+        lock_widget_return=OverrideRemoveLockInfo([], {}),
+    )
+
+    override_data = ReOptimizationData(
+        {},
+        {21: {21: 1, 716: 1}, 83: {716: 0}},
+        {21: [716]},
+        True,
+    )
+
+    opt_mdl_inputs, _ = get_mdl_input_exhaustive
+
+    opt_mdl_inputs.update_cluster(override_selections)
+
+    or_opt_mdl = opt_mdl_inputs.build_optimization_model(override_data)
+
+    assert hasattr(or_opt_mdl, "num_distant_well_pairs")
+    assert 21 in or_opt_mdl.set_clusters_reassign

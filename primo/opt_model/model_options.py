@@ -1297,7 +1297,11 @@ class OptModelInputs:  # pylint: disable=too-many-instance-attributes
             reassign_well_list,
         ) in cluster_wo_lock_well.items():
             # Step 3-1: Add reassigned well(s) to its destination cluster
-            self.campaign_candidates[cluster].extend(reassign_well_list)
+            self.campaign_candidates[cluster].extend(
+                w
+                for w in reassign_well_list
+                if w not in self.campaign_candidates[cluster]
+            )
 
             # Step 3-2: Assert whether the destination cluster contains any extra well(s)
             # Step 3-2-0: Obtain extra well(s) in the destination cluster
