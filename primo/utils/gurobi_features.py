@@ -108,6 +108,12 @@ class GurobiSolver:
                 1 if constr.Lazy >= 1 else 0 for constr in gm.getConstrs()
             ),
             "num_indicator_constraints": gm.NumGenConstrs,
+            "num_vars": gm.NumVars,
+            "num_linear_constraints": gm.NumConstrs,
+            "num_non_zeros": gm.DNumNZs,
+            "num_binary_vars": gm.NumBinVars,
+            "memory_used": gm.MemUsed,
+            "max_memory_used": gm.MaxMemUsed,
         }
 
     def set_branch_priorities(

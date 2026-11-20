@@ -13,6 +13,9 @@
 # Standard libs
 import logging
 import time
+from collections import defaultdict
+from dataclasses import dataclass
+from itertools import combinations
 
 # Installed libs
 import networkx as nx
@@ -31,6 +34,131 @@ from pyomo.environ import (
 from primo.data_parser.metric_data import Metric
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class ForbiddenWellPairGraph:
+    """Graph whose edges denote forbidden well pairs"""
+
+    zone_wells: pd.Series
+    time_limit: float = 2.0
+
+    def __post_init__(self):
+        self.set_well_pairs = set(self.zone_wells)
+        self.cliques = None
+        self.compute_cliques()
+        if not self.has_covered_all_edges(self.cliques):
+            raise RuntimeError("Some edges are not covered!")
+
+    @staticmethod
+    def sort_cliques(cliques: list[list]):
+        """
+        Sorts the cliques in descending order of clique sizes, and ensures that the
+        nodes in each clique are in ascending order.
+        """
+        sorted_cliques = sorted(cliques, key=len, reverse=True)
+        return [sorted(n) for n in sorted_cliques]
+
+    def get_missing_edges(self, cliques: list[list]):
+        """Returns uncovered edges"""
+        covered_edges = {e for sg in cliques for e in combinations(sorted(sg), 2)}
+        return self.set_well_pairs - covered_edges
+
+    def compute_cliques(self):
+        """Identifies maximal cliques for a given graph"""
+        graph = nx.Graph()
+        graph.add_edges_from(self.zone_wells)
+        cliques = []
+        start_time = time.perf_counter()
+        has_time_out = False
+
+        for cq in nx.find_cliques(graph):
+            cliques.append(cq)
+
+            if time.perf_counter() - start_time > self.time_limit:
+                LOGGER.warning(
+                    "Entire set of cliques could not be generated within time limit"
+                )
+                has_time_out = True
+                break
+
+        cliques = self.sort_cliques(cliques)
+        if not has_time_out and len(cliques) <= len(self.zone_wells):
+            # All cliques were enumerated within time limit, and using cliques
+            # reduces the total number of constraints.
+            LOGGER.info(
+                "Cardinality of cliques < cardinality of edges, so using all cliques."
+            )
+            self.cliques = cliques
+            return
+
+        LOGGER.warning(
+            f"Time out: {has_time_out}. Number of cliques is more than the "
+            f"number of edges. \n\tGenerating a subset of cliques using heuristics."
+        )
+        if not has_time_out:
+            # All cliques were enumerated, but their number is higher than the
+            # number of edges. Discard some cliques
+            self.cliques = self.condense_clique_set(cliques)
+            return
+
+        # Code reaches here only if the complete set of cliques is not enumerated
+        self.cliques = self.condense_clique_set(cliques)
+
+    def get_heuristic_clique_subset(self, graph: nx.Graph):
+        """Identifies a subset of cliques using a heuristic"""
+        cliques = []
+        start_time = time.perf_counter()
+        sg = graph.copy()
+        LOGGER.info("Constructing a subset of cliques")
+        uncovered_edges = self.set_well_pairs.copy()
+
+        while time.perf_counter() - start_time <= 5 * self.time_limit:
+            current_max_clique = nx.approximation.max_clique(sg)
+            if len(current_max_clique) <= 2:
+                LOGGER.info("Unable to find cliques of size 3 or higher.")
+                break
+
+            # Identified a clique of size 3 or higher
+            cliques.append(sorted(list(current_max_clique)))
+            uncovered_edges -= set(combinations(cliques[-1], 2))
+
+            # Create a sub-graph by deleting the nodes from identified clique
+            sg = sg.subgraph(sg.nodes - current_max_clique)
+
+        LOGGER.info(
+            f"Number of well pairs: {len(self.zone_wells)}. "
+            f"Number of cliques: {len(cliques) + len(uncovered_edges)}"
+        )
+
+        return cliques + list(uncovered_edges)
+
+    def condense_clique_set(self, cliques: list):
+        """Reduces the number of cliques"""
+        reduced_cliques = []
+        uncovered_edges = self.set_well_pairs.copy()
+
+        for sg in cliques:
+            edges = set(combinations(sg, 2))
+            if len(uncovered_edges.intersection(edges)) >= 2:
+                # Clique eliminates at least two edges, so retain it
+                reduced_cliques.append(sg)
+                uncovered_edges -= edges
+
+            if len(uncovered_edges) == 0:
+                # All edges are covered
+                break
+
+        LOGGER.info(
+            f"Number of well pairs: {len(self.zone_wells)}. Condensed number "
+            f"of cliques from {len(cliques)} to: {len(reduced_cliques)}, "
+            f"{len(uncovered_edges)} = {len(reduced_cliques) + len(uncovered_edges)}"
+        )
+        return reduced_cliques + list(uncovered_edges)
+
+    def has_covered_all_edges(self, cliques: list):
+        """Checks whether all the edges are covered or not"""
+        return len(self.get_missing_edges(cliques)) == 0
 
 
 @declare_custom_block("ZoneFormulationBlock", rule="compute_metric_score")
@@ -310,30 +438,50 @@ class ZoneFormulationBlockData(BlockData):
         well pair-based metrics
         """
         cm = self.cluster_model
-        zone_matrix = self.construct_zone_matrix(zone_wells)
+        eliminate_well_pairs = {}
+
+        for zone in self.set_zones:
+            well_pairs_outside_zone = zone_wells[zone_wells > zone].index
+            if len(well_pairs_outside_zone) > 0:
+                eliminate_well_pairs[zone] = defaultdict(list)
+                for w1, w2 in well_pairs_outside_zone:
+                    eliminate_well_pairs[zone][w1].append(w2)
 
         @self.Constraint(cm.set_wells, self.set_zones)
         def suppress_wells_rlt_1(blk, w, z):
-            wells_outside_zone = zone_matrix[zone_matrix[w] > z].index
-            if len(wells_outside_zone) == 0:
-                # All wells pairs are within zone <= z
-                return Constraint.Skip
-
-            return sum(blk.select_well_zone[v, z] for v in wells_outside_zone) <= len(
-                wells_outside_zone
-            ) * (blk.select_zone[z] - blk.select_well_zone[w, z])
-
-        @self.Constraint(cm.set_wells, self.set_zones)
-        def zone_based_num_wells_var_bound(blk, w, z):
-            wells_in_zone = zone_matrix[zone_matrix[w] <= z].index
-            if len(wells_in_zone) == len(cm.set_wells):
-                # All wells pairs are within zone <= z
+            if z not in eliminate_well_pairs or w not in eliminate_well_pairs[z]:
                 return Constraint.Skip
 
             return sum(
-                blk.num_wells_var_zone[n, z]
-                for n in range(len(wells_in_zone) + 1, max(cm.set_num_wells) + 1)
-            ) <= (blk.select_zone[z] - blk.select_well_zone[w, z])
+                blk.select_well_zone[v, z] for v in eliminate_well_pairs[z][w]
+            ) <= len(eliminate_well_pairs[z][w]) * (
+                blk.select_zone[z] - blk.select_well_zone[w, z]
+            )
+
+        # zone_matrix = self.construct_zone_matrix(zone_wells)
+
+        # @self.Constraint(cm.set_wells, self.set_zones)
+        # def suppress_wells_rlt_1(blk, w, z):
+        #     wells_outside_zone = zone_matrix[zone_matrix[w] > z].index
+        #     if len(wells_outside_zone) == 0:
+        #         # All wells pairs are within zone <= z
+        #         return Constraint.Skip
+
+        #     return sum(blk.select_well_zone[v, z] for v in wells_outside_zone) <= len(
+        #         wells_outside_zone
+        #     ) * (blk.select_zone[z] - blk.select_well_zone[w, z])
+
+        # @self.Constraint(cm.set_wells, self.set_zones)
+        # def zone_based_num_wells_var_bound(blk, w, z):
+        #     wells_in_zone = zone_matrix[zone_matrix[w] <= z].index
+        #     if len(wells_in_zone) == len(cm.set_wells):
+        #         # All wells pairs are within zone <= z
+        #         return Constraint.Skip
+
+        #     return sum(
+        #         blk.num_wells_var_zone[n, z]
+        #         for n in range(len(wells_in_zone) + 1, max(cm.set_num_wells) + 1)
+        #     ) <= (blk.select_zone[z] - blk.select_well_zone[w, z])
 
         # @self.Constraint(cm.set_wells, self.set_zones)
         # def suppress_wells_rlt_2(blk, w, z):
@@ -445,7 +593,10 @@ class ZoneFormulationBlockData(BlockData):
                     f"Constructing cliques for cluster {self.cluster_model.index()} "
                     f"and zone {zone}"
                 )
-                clique_cuts[zone] = self.get_cliques(well_pairs_outside_zone)
+                # clique_cuts[zone] = self.get_cliques(well_pairs_outside_zone)
+                clique_cuts[zone] = ForbiddenWellPairGraph(
+                    zone_wells=well_pairs_outside_zone
+                ).cliques
 
         clique_cut_set = [
             (zone, k) for zone, cq in clique_cuts.items() for k in range(len(cq))
