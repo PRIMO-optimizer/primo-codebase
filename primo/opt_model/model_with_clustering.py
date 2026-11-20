@@ -134,7 +134,7 @@ class PluggingCampaignModel(ConcreteModel):
 
         self.well_selected = Var(
             self.set_wells,
-            within=Binary,
+            bounds=(0, 1),
             doc="If well is selected in any project",
         )
 
@@ -195,6 +195,16 @@ class PluggingCampaignModel(ConcreteModel):
                     doc="Number of well pairs exceeding the distance threshold",
                 )
                 self.add_distant_well_count()
+
+        if model_inputs.max_num_wells_plugged is not None:
+            self.limit_max_num_wells_plugged = Constraint(
+                expr=sum(self.cluster[:].num_wells_chosen)
+                <= model_inputs.max_num_wells_plugged,
+                doc="Sets an upper bound on the number of wells plugged",
+            )
+
+        if model_inputs.max_usable_budget is not None:
+            self.total_budget = model_inputs.max_usable_budget
 
         # Append the objective function
         self.append_objective()
@@ -436,6 +446,9 @@ class PluggingCampaignModel(ConcreteModel):
         """
         Appends objective function to the model
         """
+        for blk in self.cluster.values():
+            blk.construct_impact_score_expression()
+
         total_impact_score = sum(
             self.cluster[c].cluster_impact_score for c in self.set_clusters
         )
